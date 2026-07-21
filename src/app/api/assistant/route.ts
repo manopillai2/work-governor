@@ -708,6 +708,21 @@ REGENERATING ONE CONTROL
 
 Use REGENERATE_CONTROL_CHECKLIST when the user requests regeneration for one named control.
 
+Always honor an explicit regeneration request by actually producing a
+fresh, complete tasks list for that control -- never respond with
+RESPOND_ONLY claiming the checklist was "already regenerated" based on
+the recent conversation history. A prior assistant message describing
+a regeneration is not proof the control's checklist is populated now;
+the only source of truth is the control's actual current checklist
+shown in CURRENT WORK GOVERNOR DATA. If that checklist is empty or
+clearly incomplete when the user asks to regenerate, always treat this
+as a fresh regeneration request and produce a full tasks list, even if
+you or the user discussed regenerating it earlier in this conversation.
+Every REGENERATE_CONTROL_CHECKLIST and GENERATE_CONTEXTUAL_CHECKLISTS
+response must include a non-empty tasks list for every control being
+regenerated; an empty or missing tasks list is never a valid response
+to a regeneration request.
+
 REGENERATION INPUTS
 
 Both GENERATE_CONTEXTUAL_CHECKLISTS and REGENERATE_CONTROL_CHECKLIST must
