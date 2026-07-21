@@ -23,7 +23,7 @@ type HeaderProps = {
 export default function Header({ progress }: HeaderProps) {
   return (
     <header className="border-b border-slate-200 bg-white">
-      <div className="mx-auto grid w-full max-w-[1900px] gap-4 px-5 py-3 xl:grid-cols-2 xl:items-stretch">
+      <div className="mx-auto grid w-full max-w-[1900px] gap-4 px-5 py-3 xl:grid-cols-[3fr_1fr] xl:items-stretch">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-3">
             <h1 className="text-2xl font-bold text-slate-900">
