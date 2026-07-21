@@ -353,6 +353,56 @@ function getCurrentDate(): string {
   ).format(new Date());
 }
 
+// Claude's tool call is only schema-hinted, not schema-enforced -- the
+// model can still return a malformed shape (e.g. an object where a
+// plain string was expected). Anything that reaches the client and
+// eventually a database text column must be a genuine string first,
+// or it silently corrupts stored data (e.g. via implicit ToString
+// coercion producing the literal text "[object Object]").
+function isNonEmptyString(
+  value: unknown
+): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0
+  );
+}
+
+function sanitizeTaskInputs(
+  tasks: unknown
+): ChecklistTaskInput[] | undefined {
+  if (!Array.isArray(tasks)) {
+    return undefined;
+  }
+
+  const sanitized = tasks
+    .filter(
+      (task): task is Record<string, unknown> =>
+        typeof task === "object" &&
+        task !== null &&
+        isNonEmptyString(
+          (task as Record<string, unknown>).text
+        )
+    )
+    .map((task) => ({
+      text: task.text as string,
+      category: isNonEmptyString(task.category)
+        ? (task.category as ChecklistTaskInput["category"])
+        : undefined,
+      required:
+        typeof task.required === "boolean"
+          ? task.required
+          : undefined,
+      learningId: isNonEmptyString(task.learningId)
+        ? (task.learningId as string)
+        : undefined,
+    }));
+
+  return sanitized.length > 0
+    ? sanitized
+    : undefined;
+}
+
 export async function POST(
   request: Request
 ) {
@@ -1791,8 +1841,11 @@ ${message}
 
     switch (rawCommand.action) {
       case "CREATE_APPLICATION": {
-        const controls =
-          rawCommand.payload.controls ?? [];
+        const controls = (
+          rawCommand.payload.controls ?? []
+        ).filter((control) =>
+          isNonEmptyString(control?.name)
+        );
 
         command = {
           action: "CREATE_APPLICATION",
@@ -1811,7 +1864,9 @@ ${message}
                 name: control.name,
                 framework:
                   control.framework ?? "SOX",
-                tasks: control.tasks,
+                tasks: sanitizeTaskInputs(
+                  control.tasks
+                ),
               })
             ),
 
@@ -1898,8 +1953,9 @@ ${message}
               rawCommand.payload
                 .argosObjective,
 
-            tasks:
-              rawCommand.payload.tasks,
+            tasks: sanitizeTaskInputs(
+              rawCommand.payload.tasks
+            ),
           },
         };
 
@@ -1941,8 +1997,9 @@ ${message}
                 .argosObjective,
 
             tasks:
-              rawCommand.payload.tasks ??
-              [],
+              sanitizeTaskInputs(
+                rawCommand.payload.tasks
+              ) ?? [],
           },
         };
 
@@ -1950,6 +2007,13 @@ ${message}
       }
 
       case "GENERATE_CONTEXTUAL_CHECKLISTS": {
+        const contextualControls = (
+          rawCommand.payload
+            .contextualControls ?? []
+        ).filter((control) =>
+          isNonEmptyString(control?.control)
+        );
+
         command = {
           action:
             "GENERATE_CONTEXTUAL_CHECKLISTS",
@@ -1959,9 +2023,15 @@ ${message}
               rawCommand.payload
                 .application ?? "",
 
-            controls:
-              rawCommand.payload
-                .contextualControls ?? [],
+            controls: contextualControls.map(
+              (control) => ({
+                ...control,
+                tasks:
+                  sanitizeTaskInputs(
+                    control.tasks
+                  ) ?? [],
+              })
+            ),
           },
         };
 
@@ -2018,9 +2088,9 @@ ${message}
             note:
               rawCommand.payload.note,
 
-            nextTasks:
-              rawCommand.payload
-                .nextTasks,
+            nextTasks: sanitizeTaskInputs(
+              rawCommand.payload.nextTasks
+            ),
           },
         };
 
@@ -2063,8 +2133,9 @@ ${message}
               rawCommand.payload
                 .checklistStatus,
 
-            tasks:
-              rawCommand.payload.tasks,
+            tasks: sanitizeTaskInputs(
+              rawCommand.payload.tasks
+            ),
 
             maxItems:
               rawCommand.payload
@@ -2123,8 +2194,9 @@ ${message}
               rawCommand.payload
                 .checklistStatus,
 
-            tasks:
-              rawCommand.payload.tasks,
+            tasks: sanitizeTaskInputs(
+              rawCommand.payload.tasks
+            ),
 
             maxItems:
               rawCommand.payload
@@ -2156,16 +2228,38 @@ ${message}
               rawCommand.payload.note ??
               "",
 
-            addTasks:
-              rawCommand.payload.addTasks,
+            addTasks: sanitizeTaskInputs(
+              rawCommand.payload.addTasks
+            ),
 
-            removeTaskTexts:
+            removeTaskTexts: Array.isArray(
               rawCommand.payload
-                .removeTaskTexts,
+                .removeTaskTexts
+            )
+              ? rawCommand.payload.removeTaskTexts.filter(
+                  isNonEmptyString
+                )
+              : undefined,
 
-            changeLogEntries:
+            changeLogEntries: Array.isArray(
               rawCommand.payload
-                .changeLogEntries,
+                .changeLogEntries
+            )
+              ? rawCommand.payload.changeLogEntries.filter(
+                  (entry) =>
+                    entry &&
+                    isNonEmptyString(
+                      entry.taskText
+                    ) &&
+                    isNonEmptyString(
+                      entry.reason
+                    ) &&
+                    (entry.changeType ===
+                      "ADDED" ||
+                      entry.changeType ===
+                        "REMOVED")
+                )
+              : undefined,
 
             progressSummary:
               rawCommand.payload
