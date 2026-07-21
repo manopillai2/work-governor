@@ -7,6 +7,7 @@
 
 import {
   Command,
+  Framework,
   HomeworkStatus,
 } from "./commandEngine";
 
@@ -62,8 +63,6 @@ function parseHomeworkUpdate(message: string): Command | null {
       ),
       control: controlName,
       status: homeworkStatus,
-      notes: message,
-      hosting: detectHosting(message),
     },
   };
 }
@@ -82,7 +81,7 @@ function parseApplicationCreation(
   return {
     action: "CREATE_APPLICATION",
     payload: {
-      project: "CORE",
+      hosting: detectHosting(message),
       framework: detectFramework(message),
       application: normalizeApplicationName(
         applicationMatch[1],
@@ -148,7 +147,7 @@ function extractHomeworkControl(
   return controlName || null;
 }
 
-function detectFramework(message: string): string {
+function detectFramework(message: string): Framework {
   if (/\bPCI(?:\s+DSS)?\b/i.test(message)) {
     return "PCI DSS";
   }

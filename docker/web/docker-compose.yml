@@ -1,0 +1,18 @@
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: docker/web/Dockerfile
+    container_name: wg-docker-web
+    env_file:
+      - .env.docker
+    ports:
+      - "3000:3000"
+    networks:
+      - work-governor-net
+    restart: unless-stopped
+
+networks:
+  work-governor-net:
+    external: true
+    name: work-governor-net

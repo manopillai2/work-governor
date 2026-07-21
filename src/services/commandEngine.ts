@@ -1647,7 +1647,7 @@ export function executeCommand(
             ...updatedApplication,
             controls:
               updatedApplication.controls.map(
-                (control) => ({
+                (control): ComplianceControl => ({
                   ...control,
                   checklistStatus:
                     control.checklistStatus ===

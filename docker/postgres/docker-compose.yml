@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wg-docker-postgres
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    ports:
+      - "5432:5432"
+    volumes:
+      - work-governor-docker-pgdata:/var/lib/postgresql/data
+    networks:
+      - work-governor-net
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER:-work_governor} -d $${POSTGRES_DB:-work_governor}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  work-governor-net:
+    external: true
+    name: work-governor-net
+
+volumes:
+  work-governor-docker-pgdata:

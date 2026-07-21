@@ -37,6 +37,10 @@ yarn-error.log*
 # local database backups
 /backups/
 
+# docker env files (real credentials; .example files are tracked)
+docker/**/.env.docker
+!docker/**/.env.docker.example
+
 # vercel
 .vercel
 
