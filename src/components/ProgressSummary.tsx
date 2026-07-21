@@ -1,6 +1,7 @@
 // ======================================================
 // Component Name : ProgressSummary
-// Purpose        : Displays dashboard summary cards
+// Purpose        : Displays a compact horizontal strip
+//                  of dashboard progress tiles
 // Author         : Manoj
 // ======================================================
 
@@ -24,71 +25,65 @@ export default function ProgressSummary({
   argosReady,
 }: ProgressSummaryProps) {
   return (
-    <aside className="rounded-2xl bg-white p-6 shadow-sm">
-      <h2 className="text-xl font-semibold text-slate-900">
-        Progress Summary
-      </h2>
+    <div className="grid w-full grid-cols-4 gap-1.5 xl:w-auto">
+      <SummaryTile
+        label="Applications"
+        value={applications}
+      />
 
-      <div className="mt-6 space-y-4">
-        <SummaryCard
-          label="Applications"
-          value={applications.toString()}
-        />
+      <SummaryTile
+        label="Controls"
+        value={controls}
+      />
 
-        <SummaryCard
-          label="Compliance Controls"
-          value={controls.toString()}
-        />
+      <SummaryTile
+        label="Not Started"
+        value={notStarted}
+      />
 
-        <SummaryCard
-          label="Not Started"
-          value={notStarted.toString()}
-        />
+      <SummaryTile
+        label="In Progress"
+        value={inProgress}
+      />
 
-        <SummaryCard
-          label="In Progress"
-          value={inProgress.toString()}
-        />
+      <SummaryTile
+        label="Completed"
+        value={completed}
+        tone="success"
+      />
 
-        <SummaryCard
-          label="Completed"
-          value={completed.toString()}
-          tone="success"
-        />
+      <SummaryTile
+        label="Needs Attention"
+        value={needsAttention}
+        tone="warning"
+      />
 
-        <SummaryCard
-          label="Needs Attention"
-          value={needsAttention.toString()}
-          tone="warning"
-        />
-
-        <SummaryCard
-          label="Argos Ready"
-          value={argosReady.toString()}
-          tone="success"
-        />
-      </div>
-    </aside>
+      <SummaryTile
+        label="Argos Ready"
+        value={argosReady}
+        tone="success"
+      />
+    </div>
   );
 }
 
-type SummaryCardProps = {
+type SummaryTileProps = {
   label: string;
-  value: string;
+  value: number;
   tone?: "default" | "success" | "warning";
 };
 
 const TONE_CLASSES: Record<
-  NonNullable<SummaryCardProps["tone"]>,
+  NonNullable<SummaryTileProps["tone"]>,
   string
 > = {
-  default: "border-slate-200",
+  default: "border-slate-200 bg-white",
   success: "border-emerald-200 bg-emerald-50",
   warning: "border-amber-200 bg-amber-50",
 };
 
 const TONE_VALUE_CLASSES: Record<
-  NonNullable<SummaryCardProps["tone"]>,
+  NonNullable<SummaryTileProps["tone"]>,
   string
 > = {
   default: "text-slate-900",
@@ -96,23 +91,23 @@ const TONE_VALUE_CLASSES: Record<
   warning: "text-amber-700",
 };
 
-function SummaryCard({
+function SummaryTile({
   label,
   value,
   tone = "default",
-}: SummaryCardProps) {
+}: SummaryTileProps) {
   return (
     <div
-      className={`rounded-xl border p-4 ${TONE_CLASSES[tone]}`}
+      className={`rounded-lg border px-2.5 py-1.5 text-center leading-tight ${TONE_CLASSES[tone]}`}
     >
-      <p className="text-sm text-slate-500">
-        {label}
-      </p>
-
       <p
-        className={`mt-1 text-2xl font-bold ${TONE_VALUE_CLASSES[tone]}`}
+        className={`text-lg font-bold ${TONE_VALUE_CLASSES[tone]}`}
       >
         {value}
+      </p>
+
+      <p className="whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
       </p>
     </div>
   );

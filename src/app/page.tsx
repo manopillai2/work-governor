@@ -16,7 +16,6 @@ import Header from "@/components/layout/Header";
 import LearningNotifications, {
   type PendingLearning,
 } from "@/components/LearningNotifications";
-import ProgressSummary from "@/components/ProgressSummary";
 
 import {
   addApplicationNote,
@@ -1279,35 +1278,11 @@ export default function Home() {
       />
 
       <div className="shrink-0">
-        <Header />
+        <Header progress={progress} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden px-3 py-3 xl:px-4 xl:py-4">
-        <div className="grid h-full min-h-0 w-full gap-3 xl:grid-cols-[minmax(220px,17%)_minmax(500px,55%)_minmax(320px,28%)] xl:gap-4">
-          <aside className="hidden h-full min-h-0 overflow-hidden xl:block">
-            <div className="h-full overflow-hidden">
-              <ProgressSummary
-                applications={
-                  progress.applications
-                }
-                controls={progress.controls}
-                notStarted={
-                  progress.notStarted
-                }
-                inProgress={
-                  progress.inProgress
-                }
-                completed={progress.completed}
-                needsAttention={
-                  progress.needsAttention
-                }
-                argosReady={
-                  progress.argosReady
-                }
-              />
-            </div>
-          </aside>
-
+        <div className="grid h-full min-h-0 w-full gap-3 xl:grid-cols-[minmax(650px,72%)_minmax(340px,28%)] xl:gap-4">
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
             <div className="mb-3 flex shrink-0 items-end justify-between gap-4">
               <div className="min-w-0">
@@ -1328,28 +1303,6 @@ export default function Home() {
                   ? ""
                   : "s"}
               </span>
-            </div>
-
-            <div className="mb-3 shrink-0 xl:hidden">
-              <ProgressSummary
-                applications={
-                  progress.applications
-                }
-                controls={progress.controls}
-                notStarted={
-                  progress.notStarted
-                }
-                inProgress={
-                  progress.inProgress
-                }
-                completed={progress.completed}
-                needsAttention={
-                  progress.needsAttention
-                }
-                argosReady={
-                  progress.argosReady
-                }
-              />
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 xl:pr-2">
