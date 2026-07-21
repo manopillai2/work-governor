@@ -13,11 +13,16 @@ import ChatPanel, {
 import ControlCard from "@/components/ControlCard";
 import FilterBar from "@/components/FilterBar";
 import Header from "@/components/layout/Header";
+import LearningNotifications, {
+  type PendingLearning,
+} from "@/components/LearningNotifications";
 import ProgressSummary from "@/components/ProgressSummary";
 
 import {
   deriveApplicationContextStatus,
   executeCommand,
+  findApplication,
+  findControl,
   inferTaskCategory,
   normalizeApplicationId,
   refreshControlState,
@@ -35,18 +40,14 @@ import {
 } from "@/services/applicationFilters";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
 import {
-  createBackupEntry,
+  createAndSaveBackup,
   downloadApplicationBackup,
   findBackupByVersion,
   formatBackupList,
   formatBackupSummary,
   loadBackupHistory,
-  saveBackupHistory,
   type BackupEntry,
 } from "@/services/backup";
-
-const STORAGE_KEY =
-  "work-governor-core-v5";
 
 // Placeholder-only local gate for destructive chat actions. This is
 // not real authentication (checked client-side, never sent to the
@@ -154,6 +155,7 @@ function createTaskFromStoredValue(
       notes: Array.isArray(task.notes)
         ? task.notes
         : [],
+      learningId: task.learningId,
     };
   }
 
@@ -350,75 +352,141 @@ export default function Home() {
     BackupEntry[]
   >([]);
 
+  const [pendingLearnings, setPendingLearnings] =
+    useState<PendingLearning[]>([]);
+
   useEffect(() => {
-    if (!isLoaded) {
-      return;
+    async function loadPendingLearnings() {
+      try {
+        const response = await fetch(
+          "/api/learnings/pending"
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+
+        if (Array.isArray(data.learnings)) {
+          setPendingLearnings(data.learnings);
+        }
+      } catch (error) {
+        console.error(
+          "Unable to load pending learnings:",
+          error
+        );
+      }
     }
 
-    saveBackupHistory(backups);
-  }, [backups, isLoaded]);
+    loadPendingLearnings();
 
-  useEffect(() => {
-    setBackups(loadBackupHistory());
+    function handleFocus() {
+      loadPendingLearnings();
+    }
+
+    window.addEventListener(
+      "focus",
+      handleFocus
+    );
+
+    return () => {
+      window.removeEventListener(
+        "focus",
+        handleFocus
+      );
+    };
+  }, []);
+
+  async function handleLearningRespond(
+    id: string,
+    response: {
+      status: "accepted" | "rejected";
+      framework?: string | null;
+      hosting?: string | null;
+      note?: string;
+    }
+  ) {
+    setPendingLearnings((current) =>
+      current.filter(
+        (learning) => learning.id !== id
+      )
+    );
 
     try {
-      const storageKeys = [
-        STORAGE_KEY,
-        "work-governor-core-v4",
-        "work-governor-core-v3",
-        "work-governor-core-v2",
-        "work-governor-core-v1",
-      ];
-
-      for (const storageKey of storageKeys) {
-        const savedData =
-          localStorage.getItem(storageKey);
-
-        if (!savedData) {
-          continue;
-        }
-
-        const parsedData = JSON.parse(
-          savedData
-        ) as
-          | StoredWorkGovernorData
-          | Application[];
-
-        if (Array.isArray(parsedData)) {
-          setApplications(
-            normalizeStoredApplications(
-              parsedData
-            )
-          );
-
-          setMessages([]);
-        } else {
-          setApplications(
-            normalizeStoredApplications(
-              parsedData.applications || []
-            )
-          );
-
-          setMessages(
-            Array.isArray(parsedData.messages)
-              ? parsedData.messages
-              : []
-          );
-        }
-
-        break;
-      }
+      await fetch(`/api/learnings/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(response),
+      });
     } catch (error) {
       console.error(
-        "Unable to restore Work Governor data:",
+        "Unable to respond to learning:",
         error
       );
-
-      setApplications([]);
-      setMessages([]);
-    } finally {
-      setIsLoaded(true);
     }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadState() {
+      try {
+        const response = await fetch("/api/state");
+
+        if (!response.ok) {
+          throw new Error(
+            "Unable to load Work Governor data from the database."
+          );
+        }
+
+        const data =
+          (await response.json()) as StoredWorkGovernorData;
+
+        if (cancelled) {
+          return;
+        }
+
+        setApplications(
+          normalizeStoredApplications(
+            data.applications || []
+          )
+        );
+
+        setMessages(
+          Array.isArray(data.messages)
+            ? data.messages
+            : []
+        );
+      } catch (error) {
+        console.error(
+          "Unable to restore Work Governor data:",
+          error
+        );
+
+        if (!cancelled) {
+          setApplications([]);
+          setMessages([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoaded(true);
+        }
+      }
+    }
+
+    loadState();
+    loadBackupHistory().then((history) => {
+      if (!cancelled) {
+        setBackups(history);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -426,13 +494,21 @@ export default function Home() {
       return;
     }
 
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
+    fetch("/api/state", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         applications,
         messages,
-      } satisfies StoredWorkGovernorData)
-    );
+      } satisfies StoredWorkGovernorData),
+    }).catch((error) => {
+      console.error(
+        "Unable to save Work Governor data:",
+        error
+      );
+    });
   }, [applications, messages, isLoaded]);
 
   const progress = useMemo(() => {
@@ -671,6 +747,78 @@ export default function Home() {
     );
   }
 
+  async function triggerLearningAnalysis(
+    command: Command,
+    resultApplications: Application[]
+  ) {
+    if (
+      command.action !== "UPDATE_TASK_NOTES" ||
+      !command.payload.changeLogEntries ||
+      command.payload.changeLogEntries.length === 0
+    ) {
+      return;
+    }
+
+    const application = findApplication(
+      resultApplications,
+      command.payload.application
+    );
+
+    const control = application
+      ? findControl(
+          application.controls,
+          command.payload.control
+        )
+      : undefined;
+
+    if (!application || !control) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        "/api/learnings/analyze",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            applicationId: application.id,
+            controlId: control.id,
+            framework: control.framework,
+            hosting: application.hosting,
+            controlObjective:
+              control.controlObjective,
+            changeLogEntries:
+              command.payload.changeLogEntries,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+
+      if (
+        Array.isArray(data.learnings) &&
+        data.learnings.length > 0
+      ) {
+        setPendingLearnings((current) => [
+          ...current,
+          ...data.learnings,
+        ]);
+      }
+    } catch (error) {
+      console.error(
+        "Unable to analyze checklist change for learnings:",
+        error
+      );
+    }
+  }
+
   async function handleSend(
     userInput: string
   ) {
@@ -816,8 +964,7 @@ export default function Home() {
         "BACKUP_APPLICATION_DATA"
       ) {
         const newBackupEntry =
-          createBackupEntry(
-            backups,
+          await createAndSaveBackup(
             applications,
             [...messages, userMessage]
           );
@@ -918,8 +1065,7 @@ export default function Home() {
         }
 
         const safetyEntry =
-          createBackupEntry(
-            backups,
+          await createAndSaveBackup(
             applications,
             [...messages, userMessage]
           );
@@ -980,6 +1126,11 @@ export default function Home() {
               "The request was completed."
           ),
         ]
+      );
+
+      void triggerLearningAnalysis(
+        data.command,
+        result.applications
       );
 
       if (
@@ -1051,6 +1202,11 @@ export default function Home() {
 
   return (
     <main className="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
+      <LearningNotifications
+        learnings={pendingLearnings}
+        onRespond={handleLearningRespond}
+      />
+
       <div className="shrink-0">
         <Header />
       </div>

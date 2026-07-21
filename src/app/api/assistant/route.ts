@@ -1,6 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+import { learningDb } from "@/db/learning-client";
+import { learnings } from "@/db/learning-schema";
 import type {
   Application,
   ApplicationContextInput,
@@ -307,6 +310,36 @@ function summarizeConversation(
     .join("\n");
 }
 
+type AcceptedLearning = {
+  id: string;
+  content: string;
+  suggestedTaskText: string;
+  suggestedCategory: string;
+  framework: string | null;
+  hosting: string | null;
+};
+
+function summarizeAcceptedLearnings(
+  acceptedLearnings: AcceptedLearning[]
+): string {
+  if (acceptedLearnings.length === 0) {
+    return "No accepted learnings yet.";
+  }
+
+  return acceptedLearnings
+    .map(
+      (learning) =>
+        `- [${learning.id}] (Framework: ${
+          learning.framework ?? "Any"
+        }, Hosting: ${
+          learning.hosting ?? "Any"
+        }) ${learning.content} — Suggested checklist item: "${
+          learning.suggestedTaskText
+        }" (category: ${learning.suggestedCategory})`
+    )
+    .join("\n");
+}
+
 function getCurrentDate(): string {
   return new Intl.DateTimeFormat(
     "en-US",
@@ -369,6 +402,29 @@ export async function POST(
 
     const currentDate =
       getCurrentDate();
+
+    let acceptedLearnings: AcceptedLearning[] = [];
+
+    try {
+      acceptedLearnings = await learningDb
+        .select({
+          id: learnings.id,
+          content: learnings.content,
+          suggestedTaskText: learnings.suggestedTaskText,
+          suggestedCategory: learnings.suggestedCategory,
+          framework: learnings.framework,
+          hosting: learnings.hosting,
+        })
+        .from(learnings)
+        .where(eq(learnings.status, "accepted"))
+        .orderBy(desc(learnings.createdAt))
+        .limit(50);
+    } catch (error) {
+      console.error(
+        "Unable to load accepted learnings (continuing without them):",
+        error
+      );
+    }
 
     const response =
       await anthropic.messages.create({
@@ -976,6 +1032,33 @@ backup, so it requires confirmation exactly like DELETE_APPLICATION:
 
 Never skip confirmation for ROLLBACK_BACKUP.
 
+ACCEPTED LEARNINGS USAGE
+
+ACCEPTED LEARNINGS in the user message lists recommendations the user has
+already reviewed and approved from past checklist changes on other
+applications and controls, each with an id, a scope (Framework and
+Hosting), a description, and a suggested checklist item.
+
+When generating or regenerating a checklist for a control (ADD_CONTROL,
+REGENERATE_CONTROL_CHECKLIST, GENERATE_CONTEXTUAL_CHECKLISTS), check each
+accepted learning against that specific control and application:
+
+- Compare the learning's Framework scope against that control's own
+  framework (SOX or PCI DSS). "Any" matches every framework.
+- Compare the learning's Hosting scope against the application's hosting
+  description. The application's hosting is freeform text, not a fixed
+  category, so classify it into SaaS, PaaS, IaaS, On-premises, or Unclear
+  using your best judgment before comparing. "Any" matches every hosting
+  type. If the hosting is genuinely unclear or ambiguous, treat it as not
+  matching rather than guessing.
+- Only apply a learning when both dimensions match (or are "Any"). Never
+  apply a learning whose scope does not genuinely match.
+- When a learning applies, include a task using its exact suggested
+  checklist item text and category, and set that task's learningId field
+  to the learning's id exactly as given. Do not set learningId on any
+  task that did not come from an accepted learning.
+- Do not duplicate a checklist item that is already effectively present.
+
 QUESTIONS AND FEEDBACK
 
 Use RESPOND_ONLY for explanations, questions, feedback, and clarification.
@@ -991,6 +1074,12 @@ Do not return ordinary prose outside the tool call.
           {
             role: "user",
             content: `
+ACCEPTED LEARNINGS
+
+${summarizeAcceptedLearnings(
+  acceptedLearnings
+)}
+
 CURRENT WORK GOVERNOR DATA
 
 ${summarizeApplications(
@@ -1214,6 +1303,10 @@ ${message}
                                 required: {
                                   type: "boolean",
                                 },
+
+                                learningId: {
+                                  type: "string",
+                                },
                               },
 
                               required: [
@@ -1382,6 +1475,10 @@ ${message}
                           required: {
                             type: "boolean",
                           },
+
+                          learningId: {
+                            type: "string",
+                          },
                         },
 
                         required: [
@@ -1434,6 +1531,10 @@ ${message}
                           required: {
                             type: "boolean",
                           },
+
+                          learningId: {
+                            type: "string",
+                          },
                         },
 
                         required: [
@@ -1485,6 +1586,10 @@ ${message}
 
                           required: {
                             type: "boolean",
+                          },
+
+                          learningId: {
+                            type: "string",
                           },
                         },
 

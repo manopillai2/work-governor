@@ -1,0 +1,30 @@
+services:
+  learning-postgres:
+    image: postgres:16-alpine
+    container_name: wg-docker-learning-db
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    ports:
+      - "5433:5432"
+    volumes:
+      - work-governor-learning-pgdata:/var/lib/postgresql/data
+    networks:
+      - work-governor-net
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER:-work_governor_learning} -d $${POSTGRES_DB:-work_governor_learning}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  work-governor-net:
+    external: true
+    name: work-governor-net
+
+volumes:
+  work-governor-learning-pgdata:

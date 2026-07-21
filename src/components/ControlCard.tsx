@@ -550,10 +550,21 @@ function ChecklistTaskRow({
             {task.text}
           </span>
 
-          <div className="mt-1 text-xs text-slate-400">
-            {task.required
-              ? "Required"
-              : "Optional"}
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span>
+              {task.required
+                ? "Required"
+                : "Optional"}
+            </span>
+
+            {task.learningId ? (
+              <span
+                className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700"
+                title={task.learningId}
+              >
+                Learning
+              </span>
+            ) : null}
           </div>
         </div>
       </label>

@@ -75,12 +75,14 @@ export interface ChecklistTask {
   completed: boolean;
   required: boolean;
   notes: string[];
+  learningId?: string;
 }
 
 export interface ChecklistTaskInput {
   text: string;
   category?: TaskCategory;
   required?: boolean;
+  learningId?: string;
 }
 
 export interface ApplicationContextInput {
@@ -462,7 +464,7 @@ function cleanStringList(values: string[]): string[] {
   return Array.from(uniqueValues.values());
 }
 
-function findApplication(
+export function findApplication(
   applications: Application[],
   applicationName: string
 ): Application | undefined {
@@ -487,7 +489,7 @@ function findApplication(
   });
 }
 
-function findControl(
+export function findControl(
   controls: ComplianceControl[],
   controlName: string
 ): ComplianceControl | undefined {
@@ -709,6 +711,7 @@ function createChecklistTask(
     completed: false,
     required: input.required !== false,
     notes: [],
+    learningId: input.learningId,
   };
 }
 
@@ -743,6 +746,7 @@ function cleanChecklistTasks(
               .map((note) => String(note ?? "").trim())
               .filter(Boolean)
           : [],
+        learningId: task.learningId,
       });
     }
   }

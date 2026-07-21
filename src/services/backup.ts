@@ -2,8 +2,6 @@ import type { ChatMessage } from "@/components/ChatPanel";
 import type { Application } from "./commandEngine";
 
 const BACKUP_FILE_FORMAT_VERSION = 1;
-const BACKUPS_STORAGE_KEY =
-  "work-governor-backups-v1";
 
 export type BackupEntry = {
   version: number;
@@ -49,19 +47,21 @@ export function downloadApplicationBackup(
   URL.revokeObjectURL(url);
 }
 
-export function loadBackupHistory(): BackupEntry[] {
+export async function loadBackupHistory(): Promise<
+  BackupEntry[]
+> {
   try {
-    const raw = localStorage.getItem(
-      BACKUPS_STORAGE_KEY
-    );
+    const response = await fetch("/api/backups");
 
-    if (!raw) {
+    if (!response.ok) {
       return [];
     }
 
-    const parsed = JSON.parse(raw);
+    const data = await response.json();
 
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(data.backups)
+      ? data.backups
+      : [];
   } catch (error) {
     console.error(
       "Unable to load Work Governor backup history:",
@@ -72,33 +72,27 @@ export function loadBackupHistory(): BackupEntry[] {
   }
 }
 
-export function saveBackupHistory(
-  backups: BackupEntry[]
-): void {
-  localStorage.setItem(
-    BACKUPS_STORAGE_KEY,
-    JSON.stringify(backups)
-  );
-}
-
-export function createBackupEntry(
-  existingBackups: BackupEntry[],
+export async function createAndSaveBackup(
   applications: Application[],
   messages: ChatMessage[]
-): BackupEntry {
-  const nextVersion =
-    existingBackups.reduce(
-      (maxVersion, backup) =>
-        Math.max(maxVersion, backup.version),
-      0
-    ) + 1;
+): Promise<BackupEntry> {
+  const response = await fetch("/api/backups", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ applications, messages }),
+  });
 
-  return {
-    version: nextVersion,
-    createdAt: new Date().toISOString(),
-    applications,
-    messages,
-  };
+  if (!response.ok) {
+    throw new Error(
+      "Unable to save the backup to the database."
+    );
+  }
+
+  const data = await response.json();
+
+  return data.backup as BackupEntry;
 }
 
 export function findBackupByVersion(
