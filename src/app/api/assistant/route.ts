@@ -76,6 +76,7 @@ type ClaudeCommandInput = {
     controls?: Array<{
       name: string;
       framework: Framework;
+      tasks?: ChecklistTaskInput[];
     }>;
 
     contextualControls?:
@@ -789,6 +790,14 @@ Use CREATE_APPLICATION when the user creates an application.
 
 A context object may be included when purpose, owners, integrations, identity types, or financial relevance are supplied.
 
+payload.hosting must always be set to a short hosting category — SaaS,
+PaaS, IaaS, On-premises, Hybrid, or Unknown — whenever the user describes
+how or where the application is hosted, even briefly (for example
+"IaaS-hosted on AWS EC2" means payload.hosting is "IaaS"). This is
+separate from context.hostingDetails, which holds the fuller
+architecture description. Never leave payload.hosting as "Unknown" when
+the user actually stated a hosting model.
+
 If the user requests common SOX controls, select suitable controls such as:
 
 - User Access Control;
@@ -799,6 +808,13 @@ If the user requests common SOX controls, select suitable controls such as:
 - System Monitoring and Logging;
 - Configuration Management;
 - Backup and Recovery.
+
+For each control, also generate its initial checklist through
+payload.controls[].tasks, using the same contextual analysis described
+under CONTEXTUAL CONTROL ANALYSIS and the same ACCEPTED LEARNINGS USAGE
+rules below — including tagging any task drawn from a matching accepted
+learning with that learning's id. Do not leave tasks empty when you have
+enough information to generate a reasonable checklist.
 
 UPDATE APPLICATION CONTEXT
 
@@ -1230,6 +1246,52 @@ ${message}
                               "SOX",
                               "PCI DSS",
                             ],
+                          },
+
+                          tasks: {
+                            type: "array",
+
+                            items: {
+                              type: "object",
+
+                              properties: {
+                                text: {
+                                  type: "string",
+                                },
+
+                                category: {
+                                  type: "string",
+
+                                  enum: [
+                                    "Homework",
+                                    "Discovery",
+                                    "Access",
+                                    "Evidence Collection",
+                                    "Validation",
+                                    "Approval",
+                                    "Argos Design",
+                                    "Next Steps",
+                                  ],
+                                },
+
+                                required: {
+                                  type: "boolean",
+                                },
+
+                                learningId: {
+                                  type: "string",
+                                },
+                              },
+
+                              required: [
+                                "text",
+                                "category",
+                                "required",
+                              ],
+
+                              additionalProperties:
+                                false,
+                            },
                           },
                         },
 
@@ -1744,13 +1806,13 @@ ${message}
               rawCommand.payload.hosting ??
               "Unknown",
 
-            framework:
-              controls[0]?.framework ??
-              "SOX",
-
             controls: controls.map(
-              (control) =>
-                control.name
+              (control) => ({
+                name: control.name,
+                framework:
+                  control.framework ?? "SOX",
+                tasks: control.tasks,
+              })
             ),
 
             context:

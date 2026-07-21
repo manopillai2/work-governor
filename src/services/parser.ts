@@ -78,15 +78,18 @@ function parseApplicationCreation(
     return null;
   }
 
+  const framework = detectFramework(message);
+
   return {
     action: "CREATE_APPLICATION",
     payload: {
       hosting: detectHosting(message),
-      framework: detectFramework(message),
       application: normalizeApplicationName(
         applicationMatch[1],
       ),
-      controls: extractControls(message),
+      controls: extractControls(message).map(
+        (name) => ({ name, framework }),
+      ),
     },
   };
 }

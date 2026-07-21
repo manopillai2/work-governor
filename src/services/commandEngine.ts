@@ -151,8 +151,11 @@ export type Command =
       payload: {
         application: string;
         hosting: string;
-        framework: Framework;
-        controls: string[];
+        controls: Array<{
+          name: string;
+          framework: Framework;
+          tasks?: ChecklistTaskInput[];
+        }>;
         context?: ApplicationContextInput;
       };
     }
@@ -1564,11 +1567,32 @@ export function executeCommand(
       };
     }
 
-    const controlNames = cleanStringList(
-      command.payload.controls
-    );
+    const seenControlNames = new Set<string>();
 
-    if (controlNames.length === 0) {
+    const controlInputs = (
+      command.payload.controls ?? []
+    ).filter((controlInput) => {
+      const trimmedName = String(
+        controlInput.name ?? ""
+      ).trim();
+
+      if (!trimmedName) {
+        return false;
+      }
+
+      const normalizedName =
+        normalizeText(trimmedName);
+
+      if (seenControlNames.has(normalizedName)) {
+        return false;
+      }
+
+      seenControlNames.add(normalizedName);
+
+      return true;
+    });
+
+    if (controlInputs.length === 0) {
       return {
         applications: currentApplications,
         message:
@@ -1585,12 +1609,24 @@ export function executeCommand(
 
     const application: Application = {
       ...baseApplication,
-      controls: controlNames.map((controlName) =>
-        createControl(
-          controlName,
-          command.payload.framework || "SOX",
-          baseApplication
-        )
+      controls: controlInputs.map(
+        (controlInput) => {
+          const defaultControl = createControl(
+            controlInput.name,
+            controlInput.framework || "SOX",
+            baseApplication
+          );
+
+          return controlInput.tasks &&
+            controlInput.tasks.length > 0
+            ? refreshControlState({
+                ...defaultControl,
+                nextTasks: convertTaskInputs(
+                  controlInput.tasks
+                ),
+              })
+            : defaultControl;
+        }
       ),
     };
 
@@ -1606,7 +1642,7 @@ export function executeCommand(
         ...currentApplications,
         application,
       ],
-      message: `${applicationId} was created with ${controlNames.length} controls.${contextMessage}`,
+      message: `${applicationId} was created with ${controlInputs.length} controls.${contextMessage}`,
     };
   }
 
