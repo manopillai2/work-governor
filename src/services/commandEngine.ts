@@ -2018,6 +2018,13 @@ export function executeCommand(
       };
     }
 
+    if (command.payload.tasks.length === 0) {
+      return {
+        applications: currentApplications,
+        message: `${control.name} was not regenerated -- the assistant did not return a valid checklist. The existing checklist is unchanged. Please try again.`,
+      };
+    }
+
     return {
       applications: currentApplications.map(
         (currentApplication) =>
@@ -2100,6 +2107,8 @@ export function executeCommand(
     const controlUpdates =
       command.payload.controls;
 
+    const skippedControlNames: string[] = [];
+
     const updatedApplications =
       currentApplications.map(
         (currentApplication) => {
@@ -2145,6 +2154,17 @@ export function executeCommand(
                     return currentControl;
                   }
 
+                  if (
+                    !update.tasks ||
+                    update.tasks.length === 0
+                  ) {
+                    skippedControlNames.push(
+                      currentControl.name
+                    );
+
+                    return currentControl;
+                  }
+
                   return refreshControlState({
                     ...currentControl,
 
@@ -2180,9 +2200,22 @@ export function executeCommand(
         }
       );
 
+    const skippedMessage =
+      skippedControlNames.length > 0
+        ? ` ${skippedControlNames.join(", ")} could not be regenerated -- the assistant did not return a valid checklist for ${
+            skippedControlNames.length === 1
+              ? "it"
+              : "them"
+          }, so the existing checklist was kept. Please try again for ${
+            skippedControlNames.length === 1
+              ? "that control"
+              : "those controls"
+          }.`
+        : "";
+
     return {
       applications: updatedApplications,
-      message: `Contextual control objectives and checklists were generated for ${applicationId}. Review and approve each checklist before beginning formal work.`,
+      message: `Contextual control objectives and checklists were generated for ${applicationId}. Review and approve each checklist before beginning formal work.${skippedMessage}`,
     };
   }
 
