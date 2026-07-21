@@ -356,6 +356,9 @@ export default function Home() {
       EMPTY_APPLICATION_FILTERS
     );
 
+  const [isChatCollapsed, setIsChatCollapsed] =
+    useState(false);
+
   const [backups, setBackups] = useState<
     BackupEntry[]
   >([]);
@@ -1282,20 +1285,18 @@ export default function Home() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden px-3 py-3 xl:px-4 xl:py-4">
-        <div className="grid h-full min-h-0 w-full gap-3 xl:grid-cols-[minmax(650px,72%)_minmax(340px,28%)] xl:gap-4">
+        <div
+          className={`grid h-full min-h-0 w-full gap-3 xl:gap-4 ${
+            isChatCollapsed
+              ? "xl:grid-cols-[1fr_44px]"
+              : "xl:grid-cols-[minmax(650px,78%)_minmax(300px,22%)]"
+          }`}
+        >
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-            <div className="mb-3 flex shrink-0 items-end justify-between gap-4">
-              <div className="min-w-0">
-                <h2 className="text-xl font-semibold text-white">
-                  Applications
-                </h2>
-
-                <p className="mt-1 truncate text-sm text-slate-400">
-                  Connect application context,
-                  SOX risk, authoritative
-                  evidence, and Argos monitoring.
-                </p>
-              </div>
+            <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
+              <h2 className="text-xl font-semibold text-white">
+                Applications
+              </h2>
 
               <span className="shrink-0 rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
                 {applications.length} application
@@ -1304,6 +1305,28 @@ export default function Home() {
                   : "s"}
               </span>
             </div>
+
+            {applications.length > 0 && (
+              <div className="mb-2 shrink-0">
+                <FilterBar
+                  applications={applications}
+                  filters={filters}
+                  onChange={setFilters}
+                  matchedApplicationCount={
+                    visibleApplications.length
+                  }
+                  totalApplicationCount={
+                    applications.length
+                  }
+                  matchedControlCount={
+                    matchedControlCount
+                  }
+                  totalControlCount={
+                    progress.controls
+                  }
+                />
+              </div>
+            )}
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 xl:pr-2">
               {applications.length === 0 ? (
@@ -1321,24 +1344,6 @@ export default function Home() {
                 </div>
               ) : (
                 <>
-                  <FilterBar
-                    applications={applications}
-                    filters={filters}
-                    onChange={setFilters}
-                    matchedApplicationCount={
-                      visibleApplications.length
-                    }
-                    totalApplicationCount={
-                      applications.length
-                    }
-                    matchedControlCount={
-                      matchedControlCount
-                    }
-                    totalControlCount={
-                      progress.controls
-                    }
-                  />
-
                   {visibleApplications.length ===
                   0 ? (
                     <div className="flex min-h-[160px] items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-8 text-center">
@@ -1574,17 +1579,50 @@ export default function Home() {
           </section>
 
           <aside className="h-full min-h-0 min-w-0 overflow-hidden">
-            <div className="h-full min-h-0 overflow-hidden">
-              <ChatPanel
-                messages={messages}
-                onSend={handleSend}
-                assistantMessage={
-                  isProcessing
-                    ? "Work Governor is analyzing the application context, SOX control risk, evidence sources, identities, and Argos objective..."
-                    : undefined
+            {isChatCollapsed ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setIsChatCollapsed(false)
                 }
-              />
-            </div>
+                title="Expand chat"
+                className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              >
+                <span className="text-lg">
+                  ‹
+                </span>
+                <span className="[writing-mode:vertical-rl] text-xs font-medium tracking-wide">
+                  Chat
+                </span>
+              </button>
+            ) : (
+              <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+                <div className="flex shrink-0 justify-end">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setIsChatCollapsed(true)
+                    }
+                    title="Collapse chat"
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  >
+                    Collapse ›
+                  </button>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <ChatPanel
+                    messages={messages}
+                    onSend={handleSend}
+                    assistantMessage={
+                      isProcessing
+                        ? "Work Governor is analyzing the application context, SOX control risk, evidence sources, identities, and Argos objective..."
+                        : undefined
+                    }
+                  />
+                </div>
+              </div>
+            )}
           </aside>
         </div>
       </div>
