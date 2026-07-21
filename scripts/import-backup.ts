@@ -55,6 +55,7 @@ async function main() {
           dataClassification: application.dataClassification,
           financialRelevance: application.financialRelevance,
           contextStatus: application.contextStatus,
+          notes: application.notes,
         }))
       );
 

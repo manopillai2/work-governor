@@ -34,6 +34,9 @@ type ApplicationCardProps = {
 
   controls: ComplianceControl[];
 
+  notes: string[];
+  onAddNote: (note: string) => void;
+
   expanded: boolean;
   onToggle: () => void;
 
@@ -71,12 +74,28 @@ export default function ApplicationCard({
 
   controls,
 
+  notes,
+  onAddNote,
+
   expanded,
   onToggle,
   onSaveContext,
 
   children,
 }: ApplicationCardProps) {
+  const [draftNote, setDraftNote] = useState("");
+
+  function handleSubmitNote() {
+    const trimmedNote = draftNote.trim();
+
+    if (!trimmedNote) {
+      return;
+    }
+
+    onAddNote(trimmedNote);
+    setDraftNote("");
+  }
+
   const [purpose, setPurpose] = useState(
     applicationPurpose
   );
@@ -338,6 +357,61 @@ export default function ApplicationCard({
                     Save Application Context
                   </button>
                 </div>
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Application Notes"
+            description="General observations about this application. Considered every time a checklist is generated or regenerated for any of its controls."
+            theme="dark"
+            badge={
+              notes.length > 0 ? (
+                <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-300">
+                  {notes.length}
+                </span>
+              ) : undefined
+            }
+          >
+            <div className="space-y-3">
+              {notes.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No application-level notes yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {notes.map((note, index) => (
+                    <p
+                      key={`app-note-${index}`}
+                      className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-300"
+                    >
+                      {note}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <div>
+                <textarea
+                  value={draftNote}
+                  onChange={(event) =>
+                    setDraftNote(event.target.value)
+                  }
+                  placeholder="Add a general note about this application, e.g. a correction to earlier assumptions or something worth remembering across every control."
+                  rows={2}
+                  className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-600 focus:border-blue-500"
+                />
+
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSubmitNote}
+                    disabled={!draftNote.trim()}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Add Note
+                  </button>
+                </div>
+              </div>
             </div>
           </CollapsibleSection>
 

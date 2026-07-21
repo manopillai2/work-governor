@@ -19,13 +19,16 @@ import LearningNotifications, {
 import ProgressSummary from "@/components/ProgressSummary";
 
 import {
+  addApplicationNote,
   deriveApplicationContextStatus,
   executeCommand,
   findApplication,
   findControl,
   inferTaskCategory,
+  markTaskIrrelevant,
   normalizeApplicationId,
   refreshControlState,
+  restoreTaskRelevance,
   updateApplicationContextValues,
   type Application,
   type ApplicationContextInput,
@@ -156,6 +159,8 @@ function createTaskFromStoredValue(
         ? task.notes
         : [],
       learningId: task.learningId,
+      irrelevant: task.irrelevant === true,
+      irrelevantReason: task.irrelevantReason,
     };
   }
 
@@ -287,6 +292,10 @@ function normalizeStoredApplication(
 
     contextStatus:
       application.contextStatus || "Missing",
+
+    notes: Array.isArray(application.notes)
+      ? application.notes
+      : [],
 
     controls: Array.isArray(
       application.controls
@@ -744,6 +753,68 @@ export default function Home() {
   ) {
     void handleSend(
       `For application "${applicationName}", control "${controlName}", add this note against the checklist item "${taskText}": ${note}`
+    );
+  }
+
+  function markTaskIrrelevantHandler(
+    applicationId: string,
+    controlId: string,
+    taskId: string,
+    reason: string
+  ) {
+    updateControl(
+      applicationId,
+      controlId,
+      (control) =>
+        markTaskIrrelevant(
+          control,
+          taskId,
+          reason
+        )
+    );
+  }
+
+  function restoreTaskHandler(
+    applicationId: string,
+    controlId: string,
+    taskId: string
+  ) {
+    updateControl(
+      applicationId,
+      controlId,
+      (control) =>
+        restoreTaskRelevance(
+          control,
+          taskId
+        )
+    );
+  }
+
+  function addApplicationNoteHandler(
+    applicationId: string,
+    note: string
+  ) {
+    setApplications(
+      (currentApplications) =>
+        currentApplications.map(
+          (application) =>
+            application.id ===
+            applicationId
+              ? addApplicationNote(
+                  application,
+                  note
+                )
+              : application
+        )
+    );
+  }
+
+  function regenerateChecklistHandler(
+    applicationId: string,
+    controlName: string
+  ) {
+    void handleSend(
+      `Regenerate the contextual checklist for control "${controlName}" on application "${applicationId}".`
     );
   }
 
@@ -1381,6 +1452,15 @@ export default function Home() {
                         controls={
                           application.controls
                         }
+                        notes={
+                          application.notes
+                        }
+                        onAddNote={(note) =>
+                          addApplicationNoteHandler(
+                            application.id,
+                            note
+                          )
+                        }
                         expanded={
                           expandedApplication ===
                           application.id
@@ -1479,6 +1559,32 @@ export default function Home() {
                                       control.name,
                                       taskText,
                                       note
+                                    )
+                                  }
+                                  onMarkTaskIrrelevant={(
+                                    taskId,
+                                    reason
+                                  ) =>
+                                    markTaskIrrelevantHandler(
+                                      application.id,
+                                      control.id,
+                                      taskId,
+                                      reason
+                                    )
+                                  }
+                                  onRestoreTask={(
+                                    taskId
+                                  ) =>
+                                    restoreTaskHandler(
+                                      application.id,
+                                      control.id,
+                                      taskId
+                                    )
+                                  }
+                                  onRegenerateChecklist={() =>
+                                    regenerateChecklistHandler(
+                                      application.id,
+                                      control.name
                                     )
                                   }
                                   onApproveChecklist={() =>

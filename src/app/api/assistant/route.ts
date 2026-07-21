@@ -111,7 +111,7 @@ type ClaudeCommandInput = {
     taskText?: string;
 
     addTasks?: ChecklistTaskInput[];
-    removeTaskTexts?: string[];
+    markIrrelevantTaskTexts?: string[];
 
     changeLogEntries?: Array<{
       changeType: ChecklistChangeType;
@@ -158,6 +158,14 @@ function summarizeApplications(
                               .join("\n")
                           : "     - None";
 
+                      const irrelevantTag =
+                        task.irrelevant
+                          ? ` [Marked Irrelevant: ${
+                              task.irrelevantReason ||
+                              "no reason recorded"
+                            }]`
+                          : "";
+
                       return `${index + 1}. [${
                         task.completed
                           ? "Complete"
@@ -166,7 +174,7 @@ function summarizeApplications(
                         task.required
                           ? "[Required]"
                           : "[Optional]"
-                      } ${task.text}\n   Notes against this item:\n${taskNotes}`;
+                      }${irrelevantTag} ${task.text}\n   Notes against this item:\n${taskNotes}`;
                     })
                     .join("\n")
                 : "- None";
@@ -281,6 +289,17 @@ ${application.dataClassification || "Missing"}
 
 Financial Relevance:
 ${application.financialRelevance || "Missing"}
+
+Application-Level Notes:
+${
+  application.notes.length > 0
+    ? application.notes
+        .map(
+          (note, index) => `${index + 1}. ${note}`
+        )
+        .join("\n")
+    : "- None"
+}
 
 Controls:
 
@@ -617,6 +636,34 @@ However:
 
 When the user later supplies application information, use UPDATE_APPLICATION_CONTEXT.
 
+CHECKLIST GENERATION PRIORITY (applies to every checklist you produce,
+whether creating a new control, adding one, or regenerating)
+
+Every checklist, for every control, always follows this priority order:
+
+1. Ground it first in the SOX (or PCI DSS) control's own intent: what
+   risk this specific control exists to address, and what it requires
+   regardless of any particular application. This is the foundation
+   even when nothing else is known yet.
+2. When application context is available, refine and specialize that
+   foundation using the application's actual purpose, business process,
+   hosting, integrations, identity types, and financial relevance --
+   never replace the control's intent, sharpen it.
+3. Check ACCEPTED LEARNINGS (see ACCEPTED LEARNINGS USAGE below) for
+   anything applicable to this control's framework and this
+   application's hosting, and weave in any match.
+4. If application context is missing or incomplete, still produce a
+   control-intent-grounded checklist per points 1 and 3 -- never a bare
+   placeholder -- while clearly flagging that context is missing and
+   including the required task to complete it.
+5. Every task, in every case, exists to serve one underlying goal:
+   deep research to find and collect valid, reliable evidence directly
+   from the application -- prioritizing sources that are realistically
+   obtainable through integration (APIs, logs, identity sources,
+   configuration records) over manual screenshots -- and to progress
+   toward concrete, repeatable Argos monitoring rule logic for the
+   future.
+
 CONTEXTUAL CONTROL ANALYSIS
 
 For each control, combine:
@@ -660,6 +707,30 @@ Do not invent a control that does not exist.
 REGENERATING ONE CONTROL
 
 Use REGENERATE_CONTROL_CHECKLIST when the user requests regeneration for one named control.
+
+REGENERATION INPUTS
+
+Both GENERATE_CONTEXTUAL_CHECKLISTS and REGENERATE_CONTROL_CHECKLIST must
+re-evaluate the checklist from scratch using every one of these, not
+just re-apply the previous checklist:
+
+1. Every note recorded against individual checklist items and against
+   the control itself (shown per control in CURRENT WORK GOVERNOR DATA)
+   -- these often reveal that the checklist needs to change.
+2. The application's CURRENT context fields and Application-Level
+   Notes. The user's original understanding of the application may
+   have been incomplete or wrong when it was first created -- always
+   regenerate against the current, possibly corrected, context, never
+   assume the original context was accurate.
+3. ACCEPTED LEARNINGS applicable to this control's framework and this
+   application's hosting (see ACCEPTED LEARNINGS USAGE below) -- check
+   again on every regeneration, since new learnings may have been
+   accepted since the checklist was last generated.
+
+Items already marked irrelevant (shown with a "[Marked Irrelevant]"
+tag in CURRENT WORK GOVERNOR DATA) should generally stay marked
+irrelevant on regeneration unless the notes or context changes give a
+concrete reason they're relevant again -- do not silently un-mark them.
 
 TASK CATEGORIES
 
@@ -969,18 +1040,23 @@ itself should change:
   cover, add a new item through addTasks with a fitting category and
   a required flag.
 - If an existing item is now redundant, fully answered with nothing
-  further to track, or turns out not applicable, remove it by
-  listing its exact existing text in removeTaskTexts.
+  further to track, or turns out not applicable, mark it as no longer
+  relevant by listing its exact existing text in
+  markIrrelevantTaskTexts. This never deletes the item -- it stays on
+  the checklist permanently, visibly tagged, excluded from progress
+  counting, for full audit transparency. Never invent an item that
+  does not exist, and never re-mark an item that is already tagged
+  irrelevant.
 - Only change the checklist when the notes give real evidence for
-  it. Do not add or remove items speculatively.
-- Every addition and every removal must have a matching entry in
-  changeLogEntries with a specific reason grounded in what the notes
-  actually said. Never add or remove a checklist item without a
-  logged reason.
-- Do not ask for confirmation before adding or removing checklist
-  items this way. The change happens immediately, is visible on the
-  checklist right away, and is permanently recorded in the checklist
-  change log for later reference.
+  it. Do not add or mark items irrelevant speculatively.
+- Every addition and every irrelevant-marking must have a matching
+  entry in changeLogEntries (changeType ADDED or MARKED_IRRELEVANT)
+  with a specific reason grounded in what the notes actually said.
+  Never add or mark a checklist item without a logged reason.
+- Do not ask for confirmation before making these changes. The change
+  happens immediately, is visible on the checklist right away, and is
+  permanently recorded in the checklist change log for later
+  reference.
 
 Always refresh progressSummary and qaScore in this same command,
 based on all notes recorded for the control so far, not only the
@@ -1716,7 +1792,7 @@ ${message}
                       },
                     },
 
-                    removeTaskTexts: {
+                    markIrrelevantTaskTexts: {
                       type: "array",
 
                       items: {
@@ -1736,7 +1812,7 @@ ${message}
 
                             enum: [
                               "ADDED",
-                              "REMOVED",
+                              "MARKED_IRRELEVANT",
                             ],
                           },
 
@@ -2232,14 +2308,15 @@ ${message}
               rawCommand.payload.addTasks
             ),
 
-            removeTaskTexts: Array.isArray(
-              rawCommand.payload
-                .removeTaskTexts
-            )
-              ? rawCommand.payload.removeTaskTexts.filter(
-                  isNonEmptyString
-                )
-              : undefined,
+            markIrrelevantTaskTexts:
+              Array.isArray(
+                rawCommand.payload
+                  .markIrrelevantTaskTexts
+              )
+                ? rawCommand.payload.markIrrelevantTaskTexts.filter(
+                    isNonEmptyString
+                  )
+                : undefined,
 
             changeLogEntries: Array.isArray(
               rawCommand.payload
@@ -2257,7 +2334,7 @@ ${message}
                     (entry.changeType ===
                       "ADDED" ||
                       entry.changeType ===
-                        "REMOVED")
+                        "MARKED_IRRELEVANT")
                 )
               : undefined,
 

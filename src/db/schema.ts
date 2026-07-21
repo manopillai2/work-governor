@@ -34,6 +34,8 @@ export const applications = pgTable("applications", {
 
   contextStatus: text("context_status").notNull().default("Missing"),
 
+  notes: jsonb("notes").$type<string[]>().notNull().default([]),
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

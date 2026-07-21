@@ -359,6 +359,70 @@ export function generateExecutiveProgressPdf(
     });
   }
 
+  // Items marked irrelevant — full transparency on every checklist item
+  // that was tagged as no longer applicable, whether by the assistant
+  // or manually, and why.
+  const irrelevantRows = applications.flatMap(
+    (application) =>
+      application.controls.flatMap((control) =>
+        control.nextTasks
+          .filter((task) => task.irrelevant)
+          .map((task) => [
+            application.name || application.id,
+            control.name,
+            task.text,
+            task.irrelevantReason ||
+              "No reason recorded.",
+          ])
+      )
+  );
+
+  if (irrelevantRows.length > 0) {
+    const afterAttentionY = (
+      doc as unknown as {
+        lastAutoTable: { finalY: number };
+      }
+    ).lastAutoTable.finalY;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(
+      "Items Marked Irrelevant",
+      marginX,
+      afterAttentionY + 28
+    );
+
+    autoTable(doc, {
+      startY: afterAttentionY + 38,
+      margin: { left: marginX, right: marginX },
+      theme: "grid",
+      head: [
+        [
+          "Application",
+          "Control",
+          "Checklist Item",
+          "Reason",
+        ],
+      ],
+      body: irrelevantRows,
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+      },
+      styles: {
+        fontSize: 8.5,
+        cellPadding: 6,
+        valign: "top",
+      },
+      columnStyles: {
+        0: { cellWidth: 75 },
+        1: { cellWidth: 110 },
+        2: { cellWidth: "auto" },
+        3: { cellWidth: 140 },
+      },
+    });
+  }
+
   // Footer page numbers
   const pageCount = doc.getNumberOfPages();
 

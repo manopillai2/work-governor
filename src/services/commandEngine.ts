@@ -48,7 +48,12 @@ export type QaScoreLevel =
 
 export type ChecklistChangeType =
   | "ADDED"
-  | "REMOVED";
+  | "MARKED_IRRELEVANT"
+  | "RESTORED";
+
+export type ChecklistChangeSource =
+  | "assistant"
+  | "user";
 
 export interface ChecklistChangeLogEntry {
   id: string;
@@ -56,6 +61,7 @@ export interface ChecklistChangeLogEntry {
   changeType: ChecklistChangeType;
   taskText: string;
   reason: string;
+  changedBy: ChecklistChangeSource;
 }
 
 export type ChecklistMode =
@@ -76,6 +82,8 @@ export interface ChecklistTask {
   required: boolean;
   notes: string[];
   learningId?: string;
+  irrelevant?: boolean;
+  irrelevantReason?: string;
 }
 
 export interface ChecklistTaskInput {
@@ -141,6 +149,8 @@ export interface Application {
   financialRelevance: string;
 
   contextStatus: ApplicationContextStatus;
+
+  notes: string[];
 
   controls: ComplianceControl[];
 }
@@ -289,7 +299,7 @@ export type Command =
         note: string;
 
         addTasks?: ChecklistTaskInput[];
-        removeTaskTexts?: string[];
+        markIrrelevantTaskTexts?: string[];
 
         changeLogEntries?: Array<{
           changeType: ChecklistChangeType;
@@ -750,6 +760,8 @@ function cleanChecklistTasks(
               .filter(Boolean)
           : [],
         learningId: task.learningId,
+        irrelevant: task.irrelevant === true,
+        irrelevantReason: task.irrelevantReason,
       });
     }
   }
@@ -840,7 +852,7 @@ export function deriveWorkflowStage(
   }
 
   const requiredTasks = tasks.filter(
-    (task) => task.required
+    (task) => task.required && !task.irrelevant
   );
 
   const completedRequiredTasks =
@@ -896,7 +908,7 @@ export function deriveControlStatus(
 
   const requiredTasks =
     control.nextTasks.filter(
-      (task) => task.required
+      (task) => task.required && !task.irrelevant
     );
 
   const completedRequiredTasks =
@@ -960,7 +972,7 @@ export function refreshControlState(
 
   const requiredTasks =
     initialControl.nextTasks.filter(
-      (task) => task.required
+      (task) => task.required && !task.irrelevant
     );
 
   const allRequiredTasksCompleted =
@@ -991,6 +1003,111 @@ export function refreshControlState(
       controlWithChecklistStatus.nextTasks,
       controlStatus
     ),
+  };
+}
+
+export function markTaskIrrelevant(
+  control: ComplianceControl,
+  taskId: string,
+  reason: string
+): ComplianceControl {
+  const targetTask = control.nextTasks.find(
+    (task) => task.id === taskId
+  );
+
+  if (!targetTask) {
+    return control;
+  }
+
+  const trimmedReason = String(
+    reason ?? ""
+  ).trim();
+
+  return {
+    ...control,
+    nextTasks: control.nextTasks.map(
+      (task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              irrelevant: true,
+              irrelevantReason: trimmedReason,
+            }
+          : task
+    ),
+    checklistChangeLog: [
+      ...control.checklistChangeLog,
+      {
+        id: createId("log"),
+        timestamp:
+          new Date().toISOString(),
+        changeType: "MARKED_IRRELEVANT",
+        taskText: targetTask.text,
+        reason: trimmedReason,
+        changedBy: "user",
+      },
+    ],
+  };
+}
+
+export function restoreTaskRelevance(
+  control: ComplianceControl,
+  taskId: string
+): ComplianceControl {
+  const targetTask = control.nextTasks.find(
+    (task) => task.id === taskId
+  );
+
+  if (!targetTask) {
+    return control;
+  }
+
+  return {
+    ...control,
+    nextTasks: control.nextTasks.map(
+      (task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              irrelevant: false,
+              irrelevantReason: undefined,
+            }
+          : task
+    ),
+    checklistChangeLog: [
+      ...control.checklistChangeLog,
+      {
+        id: createId("log"),
+        timestamp:
+          new Date().toISOString(),
+        changeType: "RESTORED",
+        taskText: targetTask.text,
+        reason:
+          "Restored to relevant by user.",
+        changedBy: "user",
+      },
+    ],
+  };
+}
+
+export function addApplicationNote(
+  application: Application,
+  note: string
+): Application {
+  const trimmedNote = String(
+    note ?? ""
+  ).trim();
+
+  if (!trimmedNote) {
+    return application;
+  }
+
+  return {
+    ...application,
+    notes: [
+      ...application.notes,
+      trimmedNote,
+    ],
   };
 }
 
@@ -1334,6 +1451,7 @@ function createEmptyApplication(
       context?.financialRelevance?.trim() || "",
 
     contextStatus: "Missing",
+    notes: [],
     controls: [],
   };
 
@@ -2591,27 +2709,48 @@ export function executeCommand(
           : task
       );
 
-    const removeTaskTexts =
-      command.payload.removeTaskTexts ??
+    const markIrrelevantTaskTexts =
+      command.payload
+        .markIrrelevantTaskTexts ?? [];
+
+    const irrelevantTasks: ChecklistTask[] =
       [];
 
-    const removedTasks: ChecklistTask[] =
-      [];
-
-    const tasksAfterRemoval =
-      tasksWithNote.filter((task) => {
-        const shouldRemove =
-          removeTaskTexts.some(
+    const tasksAfterMarking =
+      tasksWithNote.map((task) => {
+        const shouldMarkIrrelevant =
+          markIrrelevantTaskTexts.some(
             (text) =>
               normalizeText(text) ===
               normalizeText(task.text)
           );
 
-        if (shouldRemove) {
-          removedTasks.push(task);
+        if (!shouldMarkIrrelevant) {
+          return task;
         }
 
-        return !shouldRemove;
+        const matchingEntry = (
+          command.payload
+            .changeLogEntries ?? []
+        ).find(
+          (entry) =>
+            entry.changeType ===
+              "MARKED_IRRELEVANT" &&
+            normalizeText(entry.taskText) ===
+              normalizeText(task.text)
+        );
+
+        const markedTask: ChecklistTask = {
+          ...task,
+          irrelevant: true,
+          irrelevantReason: String(
+            matchingEntry?.reason ?? ""
+          ).trim(),
+        };
+
+        irrelevantTasks.push(markedTask);
+
+        return markedTask;
       });
 
     const newTasks = convertTaskInputs(
@@ -2619,7 +2758,7 @@ export function executeCommand(
     );
 
     const finalTasks = cleanChecklistTasks(
-      [...tasksAfterRemoval, ...newTasks]
+      [...tasksAfterMarking, ...newTasks]
     );
 
     const changeLogEntries = (
@@ -2633,6 +2772,7 @@ export function executeCommand(
       reason: String(
         entry.reason ?? ""
       ).trim(),
+      changedBy: "assistant" as const,
     }));
 
     const updatedControl =
@@ -2682,9 +2822,9 @@ export function executeCommand(
       );
     }
 
-    if (removedTasks.length > 0) {
+    if (irrelevantTasks.length > 0) {
       changeSummaryParts.push(
-        `${removedTasks.length} item(s) removed`
+        `${irrelevantTasks.length} item(s) marked irrelevant`
       );
     }
 

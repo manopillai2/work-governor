@@ -73,6 +73,7 @@ export async function GET() {
       financialRelevance: row.financialRelevance,
       contextStatus:
         row.contextStatus as Application["contextStatus"],
+      notes: row.notes,
       controls: controlsByApplication.get(row.id) ?? [],
     }));
 
@@ -112,6 +113,7 @@ export async function PUT(request: Request) {
           dataClassification: application.dataClassification,
           financialRelevance: application.financialRelevance,
           contextStatus: application.contextStatus,
+          notes: application.notes,
         }))
       );
 
