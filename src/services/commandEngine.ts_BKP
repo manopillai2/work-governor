@@ -1,0 +1,1139 @@
+export type HomeworkStatus = "Waiting" | "Completed";
+
+export type WorkflowStage =
+  | "Homework"
+  | "Discovery"
+  | "Evidence Collection"
+  | "Testing"
+  | "Review"
+  | "Completed";
+
+export type Framework = "SOX" | "PCI DSS";
+
+export type ChecklistMode =
+  | "APPEND"
+  | "REPLACE"
+  | "REMOVE_DUPLICATES_AND_LIMIT";
+
+export type NoteMode =
+  | "APPEND"
+  | "REPLACE"
+  | "CLEAR";
+
+export interface ComplianceControl {
+  id: string;
+  name: string;
+  framework: Framework;
+  homeworkStatus: HomeworkStatus;
+  stage: WorkflowStage;
+  notes: string[];
+  nextTasks: string[];
+}
+
+export interface Application {
+  id: string;
+  name: string;
+  hosting: string;
+  controls: ComplianceControl[];
+}
+
+export type Command =
+  | {
+      action: "CREATE_APPLICATION";
+      payload: {
+        application: string;
+        hosting: string;
+        framework: Framework;
+        controls: string[];
+      };
+    }
+  | {
+      action: "ADD_CONTROL";
+      payload: {
+        application: string;
+        control: string;
+        framework: Framework;
+      };
+    }
+  | {
+      action: "UPDATE_HOMEWORK";
+      payload: {
+        application: string;
+        control: string;
+        status: HomeworkStatus;
+      };
+    }
+  | {
+      action: "UPDATE_CONTROL_WORK";
+      payload: {
+        application: string;
+        control: string;
+        homeworkStatus?: HomeworkStatus;
+        stage?: WorkflowStage;
+        note?: string;
+        nextTasks?: string[];
+      };
+    }
+  | {
+      action: "UPDATE_ALL_CONTROLS";
+      payload: {
+        application: string;
+        homeworkStatus?: HomeworkStatus;
+        stage?: WorkflowStage;
+        noteMode?: NoteMode;
+        notes?: string[];
+        checklistMode?: ChecklistMode;
+        tasks?: string[];
+        maxItems?: number;
+      };
+    }
+  | {
+      action: "UPDATE_NOTES";
+      payload: {
+        application: string;
+        control: string;
+        mode: NoteMode;
+        notes?: string[];
+      };
+    }
+  | {
+      action: "UPDATE_CHECKLIST";
+      payload: {
+        application: string;
+        control: string;
+        mode: ChecklistMode;
+        tasks?: string[];
+        maxItems?: number;
+      };
+    }
+  | {
+      action: "DELETE_APPLICATION";
+      payload: {
+        application: string;
+        confirmed: boolean;
+      };
+    }
+  | {
+      action: "DELETE_ALL_APPLICATIONS";
+      payload: {
+        confirmed: boolean;
+      };
+    }
+  | {
+      action: "CLEAR_CHAT_HISTORY";
+      payload: Record<string, never>;
+    }
+  | {
+      action: "RESPOND_ONLY";
+      payload: {
+        message: string;
+      };
+    };
+
+interface CommandResult {
+  applications: Application[];
+  message: string;
+}
+
+function normalizeApplicationId(value: string): string {
+  const rawValue = String(value ?? "").trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const match = rawValue.match(/(\d+)/);
+
+  if (!match) {
+    return rawValue.toUpperCase();
+  }
+
+  return `APP-${match[1].padStart(2, "0")}`;
+}
+
+function createId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function normalizeText(value: string): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function cleanStringList(values: string[]): string[] {
+  const uniqueValues = new Map<string, string>();
+
+  for (const value of values) {
+    const cleanedValue = String(value ?? "").trim();
+
+    if (!cleanedValue) {
+      continue;
+    }
+
+    const normalizedValue = normalizeText(cleanedValue);
+
+    if (
+      normalizedValue &&
+      !uniqueValues.has(normalizedValue)
+    ) {
+      uniqueValues.set(
+        normalizedValue,
+        cleanedValue
+      );
+    }
+  }
+
+  return Array.from(uniqueValues.values());
+}
+
+function findApplication(
+  applications: Application[],
+  applicationName: string
+): Application | undefined {
+  const normalizedTarget =
+    normalizeApplicationId(applicationName);
+
+  if (!normalizedTarget) {
+    return undefined;
+  }
+
+  return applications.find((application) => {
+    return (
+      normalizeApplicationId(application.id) ===
+        normalizedTarget ||
+      normalizeApplicationId(application.name) ===
+        normalizedTarget
+    );
+  });
+}
+
+function findControl(
+  controls: ComplianceControl[],
+  controlName: string
+): ComplianceControl | undefined {
+  const normalizedTarget =
+    normalizeText(controlName);
+
+  if (!normalizedTarget) {
+    return undefined;
+  }
+
+  const exactMatch = controls.find(
+    (control) =>
+      normalizeText(control.name) ===
+      normalizedTarget
+  );
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  return controls.find((control) => {
+    const normalizedControl =
+      normalizeText(control.name);
+
+    return (
+      normalizedControl.includes(
+        normalizedTarget
+      ) ||
+      normalizedTarget.includes(
+        normalizedControl
+      )
+    );
+  });
+}
+
+function applyNoteUpdate(
+  existingNotes: string[],
+  mode: NoteMode,
+  requestedNotes: string[]
+): string[] {
+  const cleanedRequestedNotes =
+    requestedNotes
+      .map((note) => String(note ?? "").trim())
+      .filter(Boolean);
+
+  if (mode === "CLEAR") {
+    return [];
+  }
+
+  if (mode === "REPLACE") {
+    return cleanedRequestedNotes;
+  }
+
+  return [
+    ...existingNotes,
+    ...cleanedRequestedNotes,
+  ];
+}
+
+function applyChecklistUpdate(
+  existingTasks: string[],
+  mode: ChecklistMode,
+  requestedTasks: string[],
+  maxItems = 5
+): string[] {
+  const cleanedExistingTasks =
+    cleanStringList(existingTasks);
+
+  const cleanedRequestedTasks =
+    cleanStringList(requestedTasks);
+
+  if (mode === "REPLACE") {
+    return cleanedRequestedTasks;
+  }
+
+  if (
+    mode ===
+    "REMOVE_DUPLICATES_AND_LIMIT"
+  ) {
+    const sourceTasks =
+      cleanedRequestedTasks.length > 0
+        ? cleanedRequestedTasks
+        : cleanedExistingTasks;
+
+    const safeMaximum = Math.min(
+      Math.max(maxItems, 1),
+      20
+    );
+
+    return cleanStringList(sourceTasks).slice(
+      0,
+      safeMaximum
+    );
+  }
+
+  return cleanStringList([
+    ...cleanedExistingTasks,
+    ...cleanedRequestedTasks,
+  ]);
+}
+
+function generateDefaultTasks(
+  applicationHosting: string,
+  controlName: string
+): string[] {
+  const hosting =
+    normalizeText(applicationHosting);
+
+  const control =
+    normalizeText(controlName);
+
+  const tasks = [
+    "Complete the initial homework by reviewing the prior-season evidence, application documentation, existing control description, and previously submitted evidence",
+    "Meet with the application team and confirm the application purpose, architecture, ownership, and control process",
+    "Identify the authoritative system-generated evidence, source system, required data fields, and evidence owner",
+    "Determine the read-only access method and define potential Argos monitoring logic",
+  ];
+
+  if (
+    hosting.includes("onprem") ||
+    hosting.includes("server") ||
+    hosting.includes("linux") ||
+    hosting.includes("windows")
+  ) {
+    tasks.push(
+      "Identify the supporting servers, operating systems, databases, and required read-only access"
+    );
+  }
+
+  if (
+    hosting.includes("saas") ||
+    hosting.includes("paas") ||
+    hosting.includes("iaas") ||
+    hosting.includes("cloud")
+  ) {
+    tasks.push(
+      "Identify available APIs, cloud logs, tenant details, and configuration sources"
+    );
+  }
+
+  if (
+    control.includes("access") ||
+    control.includes("identity") ||
+    control.includes("privileged")
+  ) {
+    tasks.push(
+      "Confirm all identity types, including users, privileged accounts, shared accounts, service accounts, service principals, and API keys",
+      "Determine how many API keys and other non-human identities exist and how they are inventoried",
+      "Confirm the authoritative sources for provisioning, deprovisioning, and access-review completeness"
+    );
+  }
+
+  if (
+    control.includes("change") ||
+    control.includes("deployment") ||
+    control.includes("release")
+  ) {
+    tasks.push(
+      "Identify the sources for change requests, approvals, testing, and production deployments",
+      "Define how Argos could detect unauthorized or unapproved changes"
+    );
+  }
+
+  if (
+    control.includes("log") ||
+    control.includes("monitor") ||
+    control.includes("siem")
+  ) {
+    tasks.push(
+      "Identify the required logs, integration status, retention period, frequency, and monitoring owner"
+    );
+  }
+
+  return cleanStringList(tasks);
+}
+
+function createControl(
+  name: string,
+  framework: Framework,
+  hosting: string
+): ComplianceControl {
+  return {
+    id: createId("control"),
+    name,
+    framework,
+    homeworkStatus: "Waiting",
+    stage: "Homework",
+    notes: [],
+    nextTasks: generateDefaultTasks(
+      hosting,
+      name
+    ),
+  };
+}
+
+export function executeCommand(
+  command: Command,
+  currentApplications: Application[]
+): CommandResult {
+  if (command.action === "RESPOND_ONLY") {
+    return {
+      applications: currentApplications,
+      message:
+        String(
+          command.payload.message ?? ""
+        ).trim() ||
+        "No application data was changed.",
+    };
+  }
+
+  if (
+    command.action ===
+    "CLEAR_CHAT_HISTORY"
+  ) {
+    return {
+      applications: currentApplications,
+      message: "",
+    };
+  }
+
+  if (
+    command.action ===
+    "DELETE_APPLICATION"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${
+          applicationId || "The application"
+        } was not found.`,
+      };
+    }
+
+    if (
+      command.payload.confirmed !== true
+    ) {
+      return {
+        applications: currentApplications,
+        message: `Please confirm deletion by saying "yes, delete ${application.id}".`,
+      };
+    }
+
+    return {
+      applications:
+        currentApplications.filter(
+          (currentApplication) =>
+            currentApplication.id !==
+            application.id
+        ),
+      message: `${application.id} was deleted.`,
+    };
+  }
+
+  if (
+    command.action ===
+    "DELETE_ALL_APPLICATIONS"
+  ) {
+    if (
+      command.payload.confirmed !== true
+    ) {
+      return {
+        applications: currentApplications,
+        message:
+          'Deleting all applications requires explicit confirmation. Say "yes, delete all applications" to proceed.',
+      };
+    }
+
+    return {
+      applications: [],
+      message:
+        "All applications were deleted.",
+    };
+  }
+
+  if (
+    command.action ===
+    "CREATE_APPLICATION"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    if (!applicationId) {
+      return {
+        applications: currentApplications,
+        message:
+          "Please provide a valid application identifier.",
+      };
+    }
+
+    if (
+      findApplication(
+        currentApplications,
+        applicationId
+      )
+    ) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} already exists.`,
+      };
+    }
+
+    const controls = cleanStringList(
+      command.payload.controls ?? []
+    );
+
+    if (controls.length === 0) {
+      return {
+        applications: currentApplications,
+        message:
+          "No valid controls were provided.",
+      };
+    }
+
+    const framework =
+      command.payload.framework || "SOX";
+
+    const hosting =
+      command.payload.hosting || "Unknown";
+
+    const application: Application = {
+      id: applicationId,
+      name: applicationId,
+      hosting,
+      controls: controls.map(
+        (controlName) =>
+          createControl(
+            controlName,
+            framework,
+            hosting
+          )
+      ),
+    };
+
+    return {
+      applications: [
+        ...currentApplications,
+        application,
+      ],
+      message: `${applicationId} was created with ${controls.length} ${framework} controls.`,
+    };
+  }
+
+  if (command.action === "ADD_CONTROL") {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} was not found.`,
+      };
+    }
+
+    const controlName = String(
+      command.payload.control ?? ""
+    ).trim();
+
+    if (!controlName) {
+      return {
+        applications: currentApplications,
+        message:
+          "A valid control name is required.",
+      };
+    }
+
+    const existingControl = findControl(
+      application.controls,
+      controlName
+    );
+
+    if (existingControl) {
+      return {
+        applications: currentApplications,
+        message: `${existingControl.name} already exists in ${applicationId}.`,
+      };
+    }
+
+    const updatedApplications =
+      currentApplications.map(
+        (currentApplication) => {
+          if (
+            currentApplication.id !==
+            application.id
+          ) {
+            return currentApplication;
+          }
+
+          return {
+            ...currentApplication,
+            controls: [
+              ...currentApplication.controls,
+              createControl(
+                controlName,
+                command.payload.framework ||
+                  "SOX",
+                currentApplication.hosting
+              ),
+            ],
+          };
+        }
+      );
+
+    return {
+      applications: updatedApplications,
+      message: `${controlName} was added to ${applicationId}.`,
+    };
+  }
+
+  if (
+    command.action ===
+    "UPDATE_ALL_CONTROLS"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} was not found.`,
+      };
+    }
+
+    if (application.controls.length === 0) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} has no controls to update.`,
+      };
+    }
+
+    const requestedNotes =
+      command.payload.notes ?? [];
+
+    const requestedTasks =
+      command.payload.tasks ?? [];
+
+    const updatedApplications =
+      currentApplications.map(
+        (currentApplication) => {
+          if (
+            currentApplication.id !==
+            application.id
+          ) {
+            return currentApplication;
+          }
+
+          return {
+            ...currentApplication,
+            controls:
+              currentApplication.controls.map(
+                (control) => {
+                  const updatedHomework =
+                    command.payload
+                      .homeworkStatus ??
+                    control.homeworkStatus;
+
+                  const updatedStage =
+                    command.payload.stage ??
+                    (command.payload
+                      .homeworkStatus ===
+                    "Completed"
+                      ? "Discovery"
+                      : control.stage);
+
+                  const updatedNotes =
+                    command.payload.noteMode
+                      ? applyNoteUpdate(
+                          control.notes ?? [],
+                          command.payload
+                            .noteMode,
+                          requestedNotes
+                        )
+                      : control.notes ?? [];
+
+                  const updatedTasks =
+                    command.payload
+                      .checklistMode
+                      ? applyChecklistUpdate(
+                          control.nextTasks ??
+                            [],
+                          command.payload
+                            .checklistMode,
+                          requestedTasks,
+                          command.payload
+                            .maxItems ?? 5
+                        )
+                      : control.nextTasks ?? [];
+
+                  return {
+                    ...control,
+                    homeworkStatus:
+                      updatedHomework,
+                    stage: updatedStage,
+                    notes: updatedNotes,
+                    nextTasks: updatedTasks,
+                  };
+                }
+              ),
+          };
+        }
+      );
+
+    const changes: string[] = [];
+
+    if (command.payload.noteMode) {
+      changes.push("work notes");
+    }
+
+    if (
+      command.payload.homeworkStatus
+    ) {
+      changes.push("homework status");
+    }
+
+    if (command.payload.stage) {
+      changes.push("workflow stage");
+    }
+
+    if (
+      command.payload.checklistMode
+    ) {
+      changes.push("checklists");
+    }
+
+    return {
+      applications: updatedApplications,
+      message:
+        changes.length > 0
+          ? `${changes.join(
+              ", "
+            )} were updated for all ${application.controls.length} controls in ${applicationId}.`
+          : `No changes were provided for the controls in ${applicationId}.`,
+    };
+  }
+
+  if (
+    command.action ===
+    "UPDATE_HOMEWORK"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} was not found.`,
+      };
+    }
+
+    const control = findControl(
+      application.controls,
+      command.payload.control
+    );
+
+    if (!control) {
+      return {
+        applications: currentApplications,
+        message: `The requested control was not found in ${applicationId}.`,
+      };
+    }
+
+    const updatedApplications =
+      currentApplications.map(
+        (currentApplication) => {
+          if (
+            currentApplication.id !==
+            application.id
+          ) {
+            return currentApplication;
+          }
+
+          return {
+            ...currentApplication,
+            controls:
+              currentApplication.controls.map(
+                (currentControl) => {
+                  if (
+                    currentControl.id !==
+                    control.id
+                  ) {
+                    return currentControl;
+                  }
+
+                  return {
+                    ...currentControl,
+                    homeworkStatus:
+                      command.payload.status,
+                    stage:
+                      command.payload.status ===
+                      "Completed"
+                        ? "Discovery"
+                        : currentControl.stage,
+                  };
+                }
+              ),
+          };
+        }
+      );
+
+    return {
+      applications: updatedApplications,
+      message: `${control.name} homework was updated to ${command.payload.status}.`,
+    };
+  }
+
+  if (
+    command.action ===
+    "UPDATE_CONTROL_WORK"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} was not found.`,
+      };
+    }
+
+    const control = findControl(
+      application.controls,
+      command.payload.control
+    );
+
+    if (!control) {
+      return {
+        applications: currentApplications,
+        message: `The requested control was not found in ${applicationId}.`,
+      };
+    }
+
+    const updatedApplications =
+      currentApplications.map(
+        (currentApplication) => {
+          if (
+            currentApplication.id !==
+            application.id
+          ) {
+            return currentApplication;
+          }
+
+          return {
+            ...currentApplication,
+            controls:
+              currentApplication.controls.map(
+                (currentControl) => {
+                  if (
+                    currentControl.id !==
+                    control.id
+                  ) {
+                    return currentControl;
+                  }
+
+                  return {
+                    ...currentControl,
+                    homeworkStatus:
+                      command.payload
+                        .homeworkStatus ??
+                      currentControl.homeworkStatus,
+                    stage:
+                      command.payload.stage ??
+                      (command.payload
+                        .homeworkStatus ===
+                      "Completed"
+                        ? "Discovery"
+                        : currentControl.stage),
+                    notes:
+                      command.payload.note
+                        ? [
+                            ...(
+                              currentControl.notes ??
+                              []
+                            ),
+                            command.payload.note.trim(),
+                          ]
+                        : currentControl.notes ??
+                          [],
+                    nextTasks:
+                      command.payload
+                        .nextTasks &&
+                      command.payload
+                        .nextTasks.length > 0
+                        ? cleanStringList([
+                            ...(
+                              currentControl.nextTasks ??
+                              []
+                            ),
+                            ...command.payload
+                              .nextTasks,
+                          ])
+                        : currentControl.nextTasks ??
+                          [],
+                  };
+                }
+              ),
+          };
+        }
+      );
+
+    return {
+      applications: updatedApplications,
+      message: `${control.name} was updated for ${applicationId}.`,
+    };
+  }
+
+  if (
+    command.action === "UPDATE_NOTES"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} was not found.`,
+      };
+    }
+
+    const control = findControl(
+      application.controls,
+      command.payload.control
+    );
+
+    if (!control) {
+      return {
+        applications: currentApplications,
+        message: `The requested control was not found in ${applicationId}.`,
+      };
+    }
+
+    const updatedApplications =
+      currentApplications.map(
+        (currentApplication) => {
+          if (
+            currentApplication.id !==
+            application.id
+          ) {
+            return currentApplication;
+          }
+
+          return {
+            ...currentApplication,
+            controls:
+              currentApplication.controls.map(
+                (currentControl) => {
+                  if (
+                    currentControl.id !==
+                    control.id
+                  ) {
+                    return currentControl;
+                  }
+
+                  return {
+                    ...currentControl,
+                    notes: applyNoteUpdate(
+                      currentControl.notes ??
+                        [],
+                      command.payload.mode,
+                      command.payload.notes ??
+                        []
+                    ),
+                  };
+                }
+              ),
+          };
+        }
+      );
+
+    const actionDescription =
+      command.payload.mode === "CLEAR"
+        ? "cleared"
+        : command.payload.mode ===
+            "REPLACE"
+          ? "replaced"
+          : "updated";
+
+    return {
+      applications: updatedApplications,
+      message: `${control.name} work notes were ${actionDescription}.`,
+    };
+  }
+
+  if (
+    command.action ===
+    "UPDATE_CHECKLIST"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} was not found.`,
+      };
+    }
+
+    const control = findControl(
+      application.controls,
+      command.payload.control
+    );
+
+    if (!control) {
+      return {
+        applications: currentApplications,
+        message: `The requested control was not found in ${applicationId}.`,
+      };
+    }
+
+    const updatedApplications =
+      currentApplications.map(
+        (currentApplication) => {
+          if (
+            currentApplication.id !==
+            application.id
+          ) {
+            return currentApplication;
+          }
+
+          return {
+            ...currentApplication,
+            controls:
+              currentApplication.controls.map(
+                (currentControl) => {
+                  if (
+                    currentControl.id !==
+                    control.id
+                  ) {
+                    return currentControl;
+                  }
+
+                  return {
+                    ...currentControl,
+                    nextTasks:
+                      applyChecklistUpdate(
+                        currentControl.nextTasks ??
+                          [],
+                        command.payload.mode,
+                        command.payload.tasks ??
+                          [],
+                        command.payload
+                          .maxItems ?? 5
+                      ),
+                  };
+                }
+              ),
+          };
+        }
+      );
+
+    const description =
+      command.payload.mode === "APPEND"
+        ? "updated"
+        : command.payload.mode ===
+            "REPLACE"
+          ? "replaced"
+          : `deduplicated and limited to ${
+              command.payload.maxItems ?? 5
+            } items`;
+
+    return {
+      applications: updatedApplications,
+      message: `${control.name} checklist was ${description}.`,
+    };
+  }
+
+  return {
+    applications: currentApplications,
+    message:
+      "The requested command is not supported.",
+  };
+}

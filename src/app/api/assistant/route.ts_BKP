@@ -1,0 +1,988 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { NextResponse } from "next/server";
+
+import type {
+  Application,
+  ChecklistMode,
+  Command,
+  Framework,
+  HomeworkStatus,
+  NoteMode,
+  WorkflowStage,
+} from "@/services/commandEngine";
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+type ChatHistoryItem = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type ClaudeCommandInput = {
+  action:
+    | "CREATE_APPLICATION"
+    | "ADD_CONTROL"
+    | "UPDATE_HOMEWORK"
+    | "UPDATE_CONTROL_WORK"
+    | "UPDATE_ALL_CONTROLS"
+    | "UPDATE_NOTES"
+    | "UPDATE_CHECKLIST"
+    | "DELETE_APPLICATION"
+    | "DELETE_ALL_APPLICATIONS"
+    | "CLEAR_CHAT_HISTORY"
+    | "RESPOND_ONLY";
+
+  payload: {
+    application?: string;
+    hosting?: string;
+
+    controls?: Array<{
+      name: string;
+      framework: Framework;
+    }>;
+
+    control?: string;
+    framework?: Framework;
+
+    status?: HomeworkStatus;
+    homeworkStatus?: HomeworkStatus;
+    stage?: WorkflowStage;
+
+    note?: string;
+    notes?: string[];
+    noteMode?: NoteMode;
+
+    nextTasks?: string[];
+
+    checklistMode?: ChecklistMode;
+    tasks?: string[];
+    maxItems?: number;
+
+    confirmed?: boolean;
+    message?: string;
+  };
+};
+
+function summarizeApplications(
+  applications: Application[]
+): string {
+  if (
+    !Array.isArray(applications) ||
+    applications.length === 0
+  ) {
+    return "No applications currently exist.";
+  }
+
+  return applications
+    .map((application) => {
+      const controls =
+        application.controls
+          .map((control) => {
+            const notes =
+              control.notes?.length > 0
+                ? control.notes
+                    .map(
+                      (note, index) =>
+                        `${index + 1}. ${note}`
+                    )
+                    .join("\n")
+                : "- None";
+
+            const tasks =
+              control.nextTasks?.length > 0
+                ? control.nextTasks
+                    .map(
+                      (task, index) =>
+                        `${index + 1}. ${task}`
+                    )
+                    .join("\n")
+                : "- None";
+
+            return `
+Control: ${control.name}
+Framework: ${control.framework}
+Homework: ${control.homeworkStatus}
+Stage: ${control.stage}
+Notes:
+${notes}
+Current checklist:
+${tasks}`;
+          })
+          .join("\n");
+
+      return `
+Application: ${application.name}
+Application ID: ${application.id}
+Hosting: ${application.hosting}
+Controls:
+${controls || "- None"}`;
+    })
+    .join("\n\n");
+}
+
+function summarizeConversation(
+  history: ChatHistoryItem[]
+): string {
+  if (
+    !Array.isArray(history) ||
+    history.length === 0
+  ) {
+    return "No earlier conversation was supplied.";
+  }
+
+  return history
+    .slice(-12)
+    .map((item) => {
+      const speaker =
+        item.role === "user"
+          ? "User"
+          : "Work Governor";
+
+      return `${speaker}: ${String(
+        item.content ?? ""
+      ).trim()}`;
+    })
+    .join("\n");
+}
+
+function getCurrentDate(): string {
+  return new Intl.DateTimeFormat(
+    "en-US",
+    {
+      timeZone: "America/Chicago",
+      month: "2-digit",
+      day: "2-digit",
+      year: "numeric",
+    }
+  ).format(new Date());
+}
+
+export async function POST(
+  request: Request
+) {
+  try {
+    const body = await request.json();
+
+    const message = body.message;
+
+    const applications = Array.isArray(
+      body.applications
+    )
+      ? (body.applications as Application[])
+      : [];
+
+    const history = Array.isArray(body.history)
+      ? (body.history as ChatHistoryItem[])
+      : [];
+
+    if (
+      typeof message !== "string" ||
+      !message.trim()
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "A valid message is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            "ANTHROPIC_API_KEY is not configured.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    const currentDate =
+      getCurrentDate();
+
+    const response =
+      await anthropic.messages.create({
+        model: "claude-haiku-4-5",
+        max_tokens: 2000,
+
+        system: `
+You are the AI command interpreter for Work Governor.
+
+Work Governor is Manoj's personal CORE compliance work-management assistant.
+
+CURRENT DATE
+
+The current date is ${currentDate} in the user's Central Time zone.
+
+Use ${currentDate} when the user says:
+- today
+- today's date
+- date this update
+- include today's date
+
+You must interpret the latest message using:
+
+1. Current Work Governor application data.
+2. Recent conversation context.
+3. The latest user message.
+
+Return exactly one structured command.
+
+SUPPORTED ACTIONS
+
+CREATE_APPLICATION
+Create one application and controls.
+
+ADD_CONTROL
+Add one control to an existing application.
+
+UPDATE_HOMEWORK
+Update only the homework status for one control.
+
+UPDATE_CONTROL_WORK
+Update one control with a general work note, stage, homework status,
+or newly generated checklist items.
+
+UPDATE_ALL_CONTROLS
+Apply the same update to every control within one application.
+
+UPDATE_NOTES
+Append, replace, or clear notes for one control.
+
+UPDATE_CHECKLIST
+Append, replace, shorten, or consolidate a checklist for one control.
+
+DELETE_APPLICATION
+Delete one specific application.
+
+DELETE_ALL_APPLICATIONS
+Delete all applications.
+
+CLEAR_CHAT_HISTORY
+Clear only the conversation messages displayed in the Work Governor chat panel.
+
+RESPOND_ONLY
+Answer a question, explain prior behavior, request missing information,
+or acknowledge feedback without changing stored data.
+
+CLEAR CHAT HISTORY
+
+Use CLEAR_CHAT_HISTORY when the user says:
+
+- remove all chat history
+- clear chat history
+- delete chat history
+- clear this conversation
+- remove all messages
+- start a fresh chat
+- clear the chat panel
+
+CLEAR_CHAT_HISTORY must:
+
+- remove all user and assistant messages from the chat panel;
+- retain every application;
+- retain every control;
+- retain all notes;
+- retain all checklists;
+- retain all statuses and workflow stages.
+
+Do not say chat history is managed by another platform.
+
+Do not use DELETE_ALL_APPLICATIONS for a chat-history request.
+
+No confirmation is required to clear chat history.
+
+APPLICATION IDENTIFIERS
+
+Normalize application identifiers:
+
+- App 1 becomes APP-01
+- Application 18 becomes APP-18
+- app-18 becomes APP-18
+
+Do not invent an application or control.
+
+Do not use placeholders such as:
+- UNKNOWN
+- <UNKNOWN>
+- unspecified
+- N/A
+
+CONTROL MATCHING
+
+Use the exact existing control names shown in current data.
+
+When the user names a control that does not exist, use RESPOND_ONLY
+and show the relevant available controls.
+
+UPDATE ALL CONTROLS
+
+Use UPDATE_ALL_CONTROLS when the latest request clearly refers to:
+
+- all controls
+- every control
+- each control
+- across all controls
+- all SOX controls for an application
+- the complete application
+- apply this update to the remaining controls
+
+Do not choose only one control when the user clearly asks for all controls.
+
+CREATE APPLICATION BEHAVIOR
+
+When the user asks for common or well-known SOX controls,
+generate appropriate controls such as:
+
+- User Access Control
+- Change Management
+- Segregation of Duties
+- System Monitoring and Logging
+- Privileged Access Management
+- User Provisioning and Deprovisioning
+- Backup and Recovery
+- Configuration Management
+
+When requested, include initial homework as the first checklist task.
+
+NOTES BEHAVIOR
+
+UPDATE_NOTES modes:
+
+APPEND
+Add notes while retaining prior notes.
+
+REPLACE
+Replace all existing notes with the supplied notes.
+
+CLEAR
+Remove all notes.
+
+Use UPDATE_ALL_CONTROLS with noteMode when a note must be applied
+to every control in an application.
+
+Preserve separate events as separate note entries.
+
+CHECKLIST BEHAVIOR
+
+Checklist modes:
+
+APPEND
+Add items while keeping existing items.
+
+REPLACE
+Replace the entire checklist.
+
+REMOVE_DUPLICATES_AND_LIMIT
+Return a final consolidated checklist and requested maximum size.
+
+Use UPDATE_ALL_CONTROLS with checklistMode when the change applies
+to every checklist in an application.
+
+DELETE BEHAVIOR
+
+For "delete APP-18", use DELETE_APPLICATION with confirmed false.
+
+For "yes, delete APP-18", use DELETE_APPLICATION with confirmed true
+when recent conversation clearly requested confirmation for APP-18.
+
+Never convert deletion of one application into deletion of all applications.
+
+Use DELETE_ALL_APPLICATIONS only when the user explicitly requests
+deletion of every application.
+
+QUESTIONS AND FEEDBACK
+
+Use RESPOND_ONLY for:
+
+- why?
+- what happened?
+- why was only one control updated?
+- why was Segregation of Duties not updated?
+- the previous request did not work
+- did the last update work?
+- general explanations
+
+Do not modify application data for questions or feedback.
+
+CORE PROJECT OBJECTIVE
+
+Guide work toward:
+
+- authoritative system-generated evidence;
+- source systems;
+- application, control, and evidence ownership;
+- read-only access;
+- evidence data fields;
+- users, privileged accounts, shared accounts, service accounts,
+  service principals, API keys, and non-human identities;
+- provisioning and deprovisioning;
+- population completeness;
+- logs, APIs, databases, configurations, and identity data;
+- monitoring frequency and exception criteria;
+- objective Argos monitoring logic.
+
+ACTION REQUIREMENTS
+
+CREATE_APPLICATION:
+- application
+- hosting
+- controls
+
+ADD_CONTROL:
+- application
+- control
+- framework
+
+UPDATE_HOMEWORK:
+- application
+- control
+- status
+
+UPDATE_CONTROL_WORK:
+- application
+- control
+Optional:
+- homeworkStatus
+- stage
+- note
+- nextTasks
+
+UPDATE_ALL_CONTROLS:
+- application
+Optional:
+- homeworkStatus
+- stage
+- noteMode
+- notes
+- checklistMode
+- tasks
+- maxItems
+
+UPDATE_NOTES:
+- application
+- control
+- noteMode
+Optional:
+- notes
+
+UPDATE_CHECKLIST:
+- application
+- control
+- checklistMode
+Optional:
+- tasks
+- maxItems
+
+DELETE_APPLICATION:
+- application
+- confirmed
+
+DELETE_ALL_APPLICATIONS:
+- confirmed
+
+CLEAR_CHAT_HISTORY:
+- payload must be an empty object
+
+RESPOND_ONLY:
+- message
+
+Return exactly one execute_work_governor_command tool call.
+Do not return ordinary prose outside the tool call.
+`,
+
+        messages: [
+          {
+            role: "user",
+            content: `
+CURRENT WORK GOVERNOR DATA
+
+${summarizeApplications(
+  applications
+)}
+
+RECENT CONVERSATION
+
+${summarizeConversation(history)}
+
+LATEST USER MESSAGE
+
+${message.trim()}
+`,
+          },
+        ],
+
+        tools: [
+          {
+            name:
+              "execute_work_governor_command",
+
+            description:
+              "Create, update, delete, clear chat history, or respond safely to Work Governor requests.",
+
+            input_schema: {
+              type: "object",
+
+              properties: {
+                action: {
+                  type: "string",
+                  enum: [
+                    "CREATE_APPLICATION",
+                    "ADD_CONTROL",
+                    "UPDATE_HOMEWORK",
+                    "UPDATE_CONTROL_WORK",
+                    "UPDATE_ALL_CONTROLS",
+                    "UPDATE_NOTES",
+                    "UPDATE_CHECKLIST",
+                    "DELETE_APPLICATION",
+                    "DELETE_ALL_APPLICATIONS",
+                    "CLEAR_CHAT_HISTORY",
+                    "RESPOND_ONLY",
+                  ],
+                },
+
+                payload: {
+                  type: "object",
+
+                  properties: {
+                    application: {
+                      type: "string",
+                    },
+
+                    hosting: {
+                      type: "string",
+                    },
+
+                    controls: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: {
+                            type: "string",
+                          },
+                          framework: {
+                            type: "string",
+                            enum: [
+                              "SOX",
+                              "PCI DSS",
+                            ],
+                          },
+                        },
+                        required: [
+                          "name",
+                          "framework",
+                        ],
+                        additionalProperties:
+                          false,
+                      },
+                    },
+
+                    control: {
+                      type: "string",
+                    },
+
+                    framework: {
+                      type: "string",
+                      enum: [
+                        "SOX",
+                        "PCI DSS",
+                      ],
+                    },
+
+                    status: {
+                      type: "string",
+                      enum: [
+                        "Waiting",
+                        "Completed",
+                      ],
+                    },
+
+                    homeworkStatus: {
+                      type: "string",
+                      enum: [
+                        "Waiting",
+                        "Completed",
+                      ],
+                    },
+
+                    stage: {
+                      type: "string",
+                      enum: [
+                        "Homework",
+                        "Discovery",
+                        "Evidence Collection",
+                        "Testing",
+                        "Review",
+                        "Completed",
+                      ],
+                    },
+
+                    note: {
+                      type: "string",
+                    },
+
+                    notes: {
+                      type: "array",
+                      items: {
+                        type: "string",
+                      },
+                    },
+
+                    noteMode: {
+                      type: "string",
+                      enum: [
+                        "APPEND",
+                        "REPLACE",
+                        "CLEAR",
+                      ],
+                    },
+
+                    nextTasks: {
+                      type: "array",
+                      items: {
+                        type: "string",
+                      },
+                    },
+
+                    checklistMode: {
+                      type: "string",
+                      enum: [
+                        "APPEND",
+                        "REPLACE",
+                        "REMOVE_DUPLICATES_AND_LIMIT",
+                      ],
+                    },
+
+                    tasks: {
+                      type: "array",
+                      items: {
+                        type: "string",
+                      },
+                    },
+
+                    maxItems: {
+                      type: "number",
+                      minimum: 1,
+                      maximum: 20,
+                    },
+
+                    confirmed: {
+                      type: "boolean",
+                    },
+
+                    message: {
+                      type: "string",
+                    },
+                  },
+
+                  additionalProperties:
+                    false,
+                },
+              },
+
+              required: [
+                "action",
+                "payload",
+              ],
+
+              additionalProperties: false,
+            },
+          },
+        ],
+
+        tool_choice: {
+          type: "tool",
+          name:
+            "execute_work_governor_command",
+        },
+      });
+
+    const toolCall =
+      response.content.find(
+        (block) =>
+          block.type === "tool_use" &&
+          block.name ===
+            "execute_work_governor_command"
+      );
+
+    if (
+      !toolCall ||
+      toolCall.type !== "tool_use"
+    ) {
+      throw new Error(
+        "Claude did not return a valid Work Governor command."
+      );
+    }
+
+    const rawCommand =
+      toolCall.input as ClaudeCommandInput;
+
+    let command: Command;
+
+    switch (rawCommand.action) {
+      case "CREATE_APPLICATION": {
+        const controls =
+          rawCommand.payload.controls ?? [];
+
+        command = {
+          action: "CREATE_APPLICATION",
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+            hosting:
+              rawCommand.payload.hosting ??
+              "Unknown",
+            framework:
+              controls[0]?.framework ??
+              "SOX",
+            controls: controls.map(
+              (control) => control.name
+            ),
+          },
+        };
+
+        break;
+      }
+
+      case "ADD_CONTROL": {
+        command = {
+          action: "ADD_CONTROL",
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+            control:
+              rawCommand.payload.control ??
+              "",
+            framework:
+              rawCommand.payload
+                .framework ?? "SOX",
+          },
+        };
+
+        break;
+      }
+
+      case "UPDATE_HOMEWORK": {
+        command = {
+          action: "UPDATE_HOMEWORK",
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+            control:
+              rawCommand.payload.control ??
+              "",
+            status:
+              rawCommand.payload.status ??
+              "Waiting",
+          },
+        };
+
+        break;
+      }
+
+      case "UPDATE_CONTROL_WORK": {
+        command = {
+          action:
+            "UPDATE_CONTROL_WORK",
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+            control:
+              rawCommand.payload.control ??
+              "",
+            homeworkStatus:
+              rawCommand.payload
+                .homeworkStatus,
+            stage:
+              rawCommand.payload.stage,
+            note:
+              rawCommand.payload.note,
+            nextTasks:
+              rawCommand.payload
+                .nextTasks,
+          },
+        };
+
+        break;
+      }
+
+      case "UPDATE_ALL_CONTROLS": {
+        command = {
+          action:
+            "UPDATE_ALL_CONTROLS",
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+            homeworkStatus:
+              rawCommand.payload
+                .homeworkStatus,
+            stage:
+              rawCommand.payload.stage,
+            noteMode:
+              rawCommand.payload.noteMode,
+            notes:
+              rawCommand.payload.notes,
+            checklistMode:
+              rawCommand.payload
+                .checklistMode,
+            tasks:
+              rawCommand.payload.tasks,
+            maxItems:
+              rawCommand.payload
+                .maxItems,
+          },
+        };
+
+        break;
+      }
+
+      case "UPDATE_NOTES": {
+        command = {
+          action: "UPDATE_NOTES",
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+            control:
+              rawCommand.payload.control ??
+              "",
+            mode:
+              rawCommand.payload.noteMode ??
+              "APPEND",
+            notes:
+              rawCommand.payload.notes ??
+              [],
+          },
+        };
+
+        break;
+      }
+
+      case "UPDATE_CHECKLIST": {
+        command = {
+          action: "UPDATE_CHECKLIST",
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+            control:
+              rawCommand.payload.control ??
+              "",
+            mode:
+              rawCommand.payload
+                .checklistMode ??
+              "APPEND",
+            tasks:
+              rawCommand.payload.tasks,
+            maxItems:
+              rawCommand.payload
+                .maxItems,
+          },
+        };
+
+        break;
+      }
+
+      case "DELETE_APPLICATION": {
+        command = {
+          action:
+            "DELETE_APPLICATION",
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+            confirmed:
+              rawCommand.payload
+                .confirmed === true,
+          },
+        };
+
+        break;
+      }
+
+      case "DELETE_ALL_APPLICATIONS": {
+        command = {
+          action:
+            "DELETE_ALL_APPLICATIONS",
+          payload: {
+            confirmed:
+              rawCommand.payload
+                .confirmed === true,
+          },
+        };
+
+        break;
+      }
+
+      case "CLEAR_CHAT_HISTORY": {
+        command = {
+          action: "CLEAR_CHAT_HISTORY",
+          payload: {},
+        };
+
+        break;
+      }
+
+      default: {
+        command = {
+          action: "RESPOND_ONLY",
+          payload: {
+            message:
+              rawCommand.payload.message ??
+              "I need more information before changing Work Governor.",
+          },
+        };
+      }
+    }
+
+    return NextResponse.json({
+      command,
+
+      assistantMessage:
+        rawCommand.action ===
+        "RESPOND_ONLY"
+          ? rawCommand.payload.message
+          : "The Work Governor request was interpreted successfully.",
+
+      usage: {
+        inputTokens:
+          response.usage.input_tokens,
+
+        outputTokens:
+          response.usage.output_tokens,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Claude API error:",
+      error
+    );
+
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "An unexpected Claude API error occurred.";
+
+    return NextResponse.json(
+      {
+        error: errorMessage,
+      },
+      {
+        status: 500,
+      }
+    );
+  }
+}
