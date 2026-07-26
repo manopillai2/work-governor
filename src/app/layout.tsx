@@ -17,6 +17,12 @@ export const metadata: Metadata = {
   description: "AI-powered personal compliance work assistant",
 };
 
+// The root page is otherwise statically prerendered and served with a
+// year-long s-maxage, so a browser tab left open across a redeploy can
+// silently keep running yesterday's JS bundle. Force dynamic rendering
+// so every deploy is picked up immediately on the next request.
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{

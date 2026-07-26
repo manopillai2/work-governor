@@ -1,6 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+  type KeyboardEvent,
+} from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
 import type {
@@ -10,7 +14,6 @@ import type {
   ChecklistTask,
   ControlStatus,
   Framework,
-  HomeworkStatus,
   QaScoreLevel,
   TaskCategory,
   WorkflowStage,
@@ -29,7 +32,6 @@ type ControlCardProps = {
   controlName: string;
   framework: Framework;
 
-  homeworkStatus: HomeworkStatus;
   stage: WorkflowStage;
 
   controlStatus: ControlStatus;
@@ -44,7 +46,6 @@ type ControlCardProps = {
   qaScoreRationale?: string;
   checklistChangeLog?: ChecklistChangeLogEntry[];
 
-  notes?: string[];
   nextTasks?: ChecklistTask[];
 
   onToggleTask: (
@@ -85,7 +86,6 @@ export default function ControlCard({
   controlName,
   framework,
 
-  homeworkStatus,
   stage,
 
   controlStatus,
@@ -100,7 +100,6 @@ export default function ControlCard({
   qaScoreRationale = "",
   checklistChangeLog = [],
 
-  notes = [],
   nextTasks = [],
 
   onToggleTask,
@@ -114,6 +113,18 @@ export default function ControlCard({
 }: ControlCardProps) {
   const [expanded, setExpanded] =
     useState(false);
+
+  // Accordion within this control only: opening one section closes
+  // whichever other one was open. Each ControlCard instance owns its
+  // own key, so this never affects other controls or ApplicationCard.
+  const [openSectionKey, setOpenSectionKey] =
+    useState<string | null>(null);
+
+  function toggleSection(key: string) {
+    setOpenSectionKey((current) =>
+      current === key ? null : key
+    );
+  }
 
   const relevantTasks = nextTasks.filter(
     (task) => !task.irrelevant
@@ -154,15 +165,17 @@ export default function ControlCard({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <button
-        type="button"
-        onClick={() =>
-          setExpanded((current) => !current)
-        }
-        aria-expanded={expanded}
-        className="flex w-full items-start justify-between gap-4 p-4 text-left transition hover:bg-slate-50"
-      >
-        <div className="min-w-0">
+      <div className="flex w-full items-start justify-between gap-4 p-4 transition hover:bg-slate-50">
+        <button
+          type="button"
+          onClick={() =>
+            setExpanded(
+              (current) => !current
+            )
+          }
+          aria-expanded={expanded}
+          className="min-w-0 flex-1 text-left"
+        >
           <h4 className="font-semibold text-slate-900">
             {controlName}
           </h4>
@@ -188,25 +201,72 @@ export default function ControlCard({
             completed · Current focus:{" "}
             {currentFocus}
           </div>
+        </button>
+
+        <div className="flex shrink-0 items-center self-center">
+          <button
+            type="button"
+            onClick={onCompleteControl}
+            disabled={
+              controlStatus !==
+                "Ready for Review" &&
+              controlStatus !== "Completed"
+            }
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {controlStatus === "Completed"
+              ? "Control Completed"
+              : "Mark Control Completed"}
+          </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-            Stage: {stage}
-          </span>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              Stage: {stage}
+            </span>
 
-          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-lg text-slate-500">
-            {expanded ? "−" : "+"}
-          </span>
+            <button
+              type="button"
+              onClick={() =>
+                setExpanded(
+                  (current) => !current
+                )
+              }
+              aria-expanded={expanded}
+              aria-label={
+                expanded
+                  ? "Collapse control"
+                  : "Expand control"
+              }
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-lg text-slate-500 hover:bg-slate-100"
+            >
+              {expanded ? "−" : "+"}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={
+              onRegenerateChecklist
+            }
+            className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            Regenerate Checklist
+          </button>
         </div>
-      </button>
+      </div>
 
       {expanded && (
-        <div className="space-y-3 border-t border-slate-200 p-4">
+        <div className="space-y-2 border-t border-slate-200 p-3">
           <CollapsibleSection
             title="QA Assessment"
             description="Why the QA badge above is what it is right now."
             tint="accent"
+            open={openSectionKey === "qa"}
+            onToggle={() =>
+              toggleSection("qa")
+            }
           >
             <p className="text-sm leading-6 text-indigo-800">
               {qaScoreRationale ||
@@ -214,7 +274,15 @@ export default function ControlCard({
             </p>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Control Details">
+          <CollapsibleSection
+            title="Control Details"
+            open={
+              openSectionKey === "details"
+            }
+            onToggle={() =>
+              toggleSection("details")
+            }
+          >
             <div className="grid gap-3 xl:grid-cols-2">
               <ControlContextBox
                 title="Control Objective"
@@ -239,52 +307,52 @@ export default function ControlCard({
           </CollapsibleSection>
 
           <CollapsibleSection
-            title="Checklist Review"
-            description="Confirm that the checklist reflects the application context, control risk, authoritative evidence, identity population, and Argos objective."
-          >
-            <div className="flex flex-wrap gap-2">
-              {checklistStatus !==
-                "Approved" &&
-                checklistStatus !==
+            title="Contextual Checklist"
+            description={`${completedTasks} of ${totalTasks} tasks completed · Current focus: ${currentFocus}`}
+            open={
+              openSectionKey === "checklist"
+            }
+            onToggle={() =>
+              toggleSection("checklist")
+            }
+            headerActions={
+              <div className="flex shrink-0 items-center gap-1.5">
+                {checklistStatus !==
+                  "Approved" &&
+                  checklistStatus !==
+                    "Completed" && (
+                    <button
+                      type="button"
+                      onClick={(
+                        event
+                      ) => {
+                        event.stopPropagation();
+                        onApproveChecklist();
+                      }}
+                      className="rounded-md bg-green-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-green-500"
+                    >
+                      Approve
+                    </button>
+                  )}
+
+                {checklistStatus !==
                   "Completed" && (
                   <button
                     type="button"
-                    onClick={onApproveChecklist}
-                    className="rounded-lg bg-green-600 px-3 py-2 text-xs font-semibold text-white hover:bg-green-500"
+                    onClick={(
+                      event
+                    ) => {
+                      event.stopPropagation();
+                      onRequestChecklistRevision();
+                    }}
+                    className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
                   >
-                    Approve Checklist
+                    Needs Revision
                   </button>
                 )}
-
-              {checklistStatus !==
-                "Completed" && (
-                <button
-                  type="button"
-                  onClick={
-                    onRequestChecklistRevision
-                  }
-                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100"
-                >
-                  Needs Revision
-                </button>
-              )}
-            </div>
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            title="Contextual Checklist"
-            description={`${completedTasks} of ${totalTasks} tasks completed · Current focus: ${currentFocus}`}
+              </div>
+            }
           >
-            <div className="mb-3 flex justify-end">
-              <button
-                type="button"
-                onClick={onRegenerateChecklist}
-                className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-              >
-                Regenerate Checklist
-              </button>
-            </div>
-
             {groupedTasks.length === 0 ? (
               <p className="text-sm text-slate-500">
                 No checklist tasks have been created.
@@ -320,6 +388,12 @@ export default function ControlCard({
           <CollapsibleSection
             title="Checklist Change Log"
             description="Every item added or marked irrelevant, whether by the assistant or by you, is recorded here permanently, with the reason why."
+            open={
+              openSectionKey === "changelog"
+            }
+            onToggle={() =>
+              toggleSection("changelog")
+            }
             badge={
               checklistChangeLog.length > 0 ? (
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
@@ -377,54 +451,6 @@ export default function ControlCard({
                   ))}
               </div>
             )}
-          </CollapsibleSection>
-
-          <CollapsibleSection title="General Control Notes">
-            {notes.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No general notes have been recorded.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {notes.map((note, index) => (
-                  <div
-                    key={`${note}-${index}`}
-                    className="rounded-lg bg-slate-50 p-3 text-sm leading-6 text-slate-700"
-                  >
-                    {note}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            title="Final Control Review"
-            description="Complete the control only after reviewing the evidence, open exceptions, and proposed Argos rule."
-          >
-            <button
-              type="button"
-              onClick={onCompleteControl}
-              disabled={
-                controlStatus !==
-                  "Ready for Review" &&
-                controlStatus !== "Completed"
-              }
-              className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {controlStatus === "Completed"
-                ? "Control Completed"
-                : "Mark Control Completed"}
-            </button>
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            title="Homework Status"
-            tint="warning"
-          >
-            <p className="text-sm text-amber-800">
-              Homework {homeworkStatus}
-            </p>
           </CollapsibleSection>
         </div>
       )}
@@ -580,6 +606,23 @@ function ChecklistTaskRow({
     setDraftNote("");
   }
 
+  function handleNoteKeyDown(
+    event: KeyboardEvent<HTMLTextAreaElement>
+  ) {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    // Alt+Enter inserts a normal newline (default textarea
+    // behavior) -- only a plain Enter submits the note.
+    if (event.altKey) {
+      return;
+    }
+
+    event.preventDefault();
+    handleSubmitNote();
+  }
+
   function handleIrrelevantCheckboxChange() {
     if (task.irrelevant) {
       onRestoreTask(task.id);
@@ -640,30 +683,40 @@ function ChecklistTaskRow({
             {task.text}
           </span>
 
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            <span>
-              {task.required
-                ? "Required"
-                : "Optional"}
-            </span>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center gap-2">
+              {task.learningId ? (
+                <span
+                  className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700"
+                  title={task.learningId}
+                >
+                  Learning
+                </span>
+              ) : null}
 
-            {task.learningId ? (
-              <span
-                className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700"
-                title={task.learningId}
-              >
-                Learning
-              </span>
-            ) : null}
+              {task.irrelevant ? (
+                <span
+                  className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700"
+                  title={task.irrelevantReason}
+                >
+                  Marked Irrelevant
+                </span>
+              ) : null}
+            </div>
 
-            {task.irrelevant ? (
-              <span
-                className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700"
-                title={task.irrelevantReason}
-              >
-                Marked Irrelevant
-              </span>
-            ) : null}
+            <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-slate-500">
+              <input
+                type="checkbox"
+                checked={
+                  task.irrelevant === true
+                }
+                onChange={
+                  handleIrrelevantCheckboxChange
+                }
+                className="h-3.5 w-3.5 rounded border-slate-300"
+              />
+              Mark irrelevant
+            </label>
           </div>
 
           {task.irrelevant &&
@@ -675,65 +728,49 @@ function ChecklistTaskRow({
         </div>
       </label>
 
-      <div className="mt-2 border-t border-slate-200 pt-2">
-        <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
-          <input
-            type="checkbox"
-            checked={
-              task.irrelevant === true
+      {isMarkingIrrelevant ? (
+        <div className="mt-2">
+          <textarea
+            value={irrelevantReasonDraft}
+            onChange={(event) =>
+              setIrrelevantReasonDraft(
+                event.target.value
+              )
             }
-            onChange={
-              handleIrrelevantCheckboxChange
-            }
-            className="h-3.5 w-3.5 rounded border-slate-300"
+            placeholder="Required: why is this item no longer relevant?"
+            rows={2}
+            className="w-full resize-y rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs leading-5 text-slate-800 outline-none placeholder:text-slate-400 focus:border-red-500"
           />
-          Mark irrelevant
-        </label>
 
-        {isMarkingIrrelevant ? (
-          <div className="mt-2">
-            <textarea
-              value={irrelevantReasonDraft}
-              onChange={(event) =>
-                setIrrelevantReasonDraft(
-                  event.target.value
-                )
+          <div className="mt-1.5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsMarkingIrrelevant(
+                  false
+                );
+                setIrrelevantReasonDraft("");
+              }}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={
+                handleConfirmMarkIrrelevant
               }
-              placeholder="Required: why is this item no longer relevant?"
-              rows={2}
-              className="w-full resize-y rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs leading-5 text-slate-800 outline-none placeholder:text-slate-400 focus:border-red-500"
-            />
-
-            <div className="mt-1.5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMarkingIrrelevant(
-                    false
-                  );
-                  setIrrelevantReasonDraft("");
-                }}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={
-                  handleConfirmMarkIrrelevant
-                }
-                disabled={
-                  !irrelevantReasonDraft.trim()
-                }
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Confirm
-              </button>
-            </div>
+              disabled={
+                !irrelevantReasonDraft.trim()
+              }
+              className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Confirm
+            </button>
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {task.notes.length > 0 ? (
         <div className="mt-3 space-y-1.5 border-t border-slate-200 pt-3">
@@ -749,27 +786,17 @@ function ChecklistTaskRow({
       ) : null}
 
       {onAddTaskNote ? (
-        <div className="mt-3 border-t border-slate-200 pt-3">
+        <div className="mt-2 border-t border-slate-200 pt-2">
           <textarea
             value={draftNote}
             onChange={(event) =>
               setDraftNote(event.target.value)
             }
-            placeholder="Add a note against this checklist item at any time..."
-            rows={2}
+            onKeyDown={handleNoteKeyDown}
+            placeholder="Add a note and press Enter to save (Alt+Enter for a new line)..."
+            rows={1}
             className="w-full resize-y rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs leading-5 text-slate-800 outline-none placeholder:text-slate-400 focus:border-blue-500"
           />
-
-          <div className="mt-1.5 flex justify-end">
-            <button
-              type="button"
-              onClick={handleSubmitNote}
-              disabled={!draftNote.trim()}
-              className="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Add Note
-            </button>
-          </div>
         </div>
       ) : null}
     </div>

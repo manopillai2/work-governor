@@ -49,6 +49,7 @@ export async function GET() {
       progressSummary: row.progressSummary,
       qaScore: row.qaScore as ComplianceControl["qaScore"],
       qaScoreRationale: row.qaScoreRationale,
+      lastRegeneratedSignature: row.lastRegeneratedSignature,
     };
 
     const list = controlsByApplication.get(row.applicationId) ?? [];
@@ -81,6 +82,7 @@ export async function GET() {
     id: row.id,
     role: row.role as ChatMessage["role"],
     content: row.content,
+    attachment: row.attachment ?? undefined,
   }));
 
   return NextResponse.json({
@@ -140,6 +142,8 @@ export async function PUT(request: Request) {
             progressSummary: control.progressSummary,
             qaScore: control.qaScore,
             qaScoreRationale: control.qaScoreRationale,
+            lastRegeneratedSignature:
+              control.lastRegeneratedSignature,
           }))
       );
 
@@ -154,6 +158,7 @@ export async function PUT(request: Request) {
           id: message.id,
           role: message.role,
           content: message.content,
+          attachment: message.attachment ?? null,
         }))
       );
     }

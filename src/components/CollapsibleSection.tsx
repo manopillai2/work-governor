@@ -11,7 +11,19 @@ type CollapsibleSectionProps = {
   theme?: Theme;
   tint?: Tint;
   badge?: ReactNode;
+  // Interactive controls (buttons, etc.) rendered in the header
+  // itself, between the title/description and the badge/toggle --
+  // for example Approve/Needs Revision on the Contextual Checklist
+  // section. Rendered outside the toggle button so clicks on these
+  // never also open/close the section.
+  headerActions?: ReactNode;
   defaultOpen?: boolean;
+  // When both are provided, open state is controlled by the parent
+  // (e.g. ControlCard uses this so only one section per control is
+  // open at a time). Omit both to keep the section's own internal
+  // open/closed state, as ApplicationCard's sections do.
+  open?: boolean;
+  onToggle?: () => void;
   children: ReactNode;
 };
 
@@ -64,51 +76,80 @@ export default function CollapsibleSection({
   theme = "light",
   tint = "default",
   badge,
+  headerActions,
   defaultOpen = false,
+  open: controlledOpen,
+  onToggle,
   children,
 }: CollapsibleSectionProps) {
-  const [open, setOpen] = useState(
-    defaultOpen
-  );
+  const [internalOpen, setInternalOpen] =
+    useState(defaultOpen);
+
+  const isControlled =
+    controlledOpen !== undefined &&
+    onToggle !== undefined;
+
+  const open = isControlled
+    ? controlledOpen
+    : internalOpen;
+
+  function handleToggle() {
+    if (isControlled) {
+      onToggle();
+    } else {
+      setInternalOpen(
+        (current) => !current
+      );
+    }
+  }
 
   return (
     <section
       className={`overflow-hidden rounded-xl border ${CONTAINER_CLASSES[theme][tint]}`}
     >
-      <button
-        type="button"
-        onClick={() =>
-          setOpen((current) => !current)
-        }
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 p-4 text-left"
-      >
-        <div className="min-w-0">
+      <div className="flex w-full items-center gap-3 px-4 py-2">
+        <button
+          type="button"
+          onClick={handleToggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-baseline justify-between gap-3 text-left"
+        >
           <h5
-            className={`font-medium ${TITLE_CLASSES[theme]}`}
+            className={`shrink-0 text-sm font-semibold ${TITLE_CLASSES[theme]}`}
           >
             {title}
           </h5>
 
           {description ? (
             <p
-              className={`mt-1 text-sm leading-6 ${DESCRIPTION_CLASSES[theme]}`}
+              title={description}
+              className={`truncate text-right text-xs leading-5 ${DESCRIPTION_CLASSES[theme]}`}
             >
               {description}
             </p>
           ) : null}
-        </div>
+        </button>
+
+        {headerActions}
 
         <div className="flex shrink-0 items-center gap-2">
           {badge}
 
-          <span
-            className={`flex h-6 w-6 items-center justify-center rounded-full border text-sm ${TOGGLE_CLASSES[theme]}`}
+          <button
+            type="button"
+            onClick={handleToggle}
+            aria-expanded={open}
+            aria-label={
+              open
+                ? `Collapse ${title}`
+                : `Expand ${title}`
+            }
+            className={`flex h-5 w-5 items-center justify-center rounded-full border text-xs ${TOGGLE_CLASSES[theme]}`}
           >
             {open ? "−" : "+"}
-          </span>
+          </button>
         </div>
-      </button>
+      </div>
 
       {open ? (
         <div

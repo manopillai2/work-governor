@@ -130,6 +130,13 @@ export interface ComplianceControl {
   progressSummary: string;
   qaScore: QaScoreLevel;
   qaScoreRationale: string;
+
+  // Snapshot of the notes/context that produced the checklist
+  // currently on file, captured whenever the checklist is generated
+  // or regenerated. Lets a later regeneration request detect that
+  // nothing has actually changed since, instead of overwriting the
+  // checklist for no reason.
+  lastRegeneratedSignature: string;
 }
 
 export interface Application {
@@ -155,6 +162,45 @@ export interface Application {
   controls: ComplianceControl[];
 }
 
+export interface MeetingPrepQuestion {
+  question: string;
+  exampleAnswer: string;
+  // Every control (by exact name) whose gap this question addresses
+  // -- a merged question often serves more than one control at once.
+  // Optional on read because it's loaded from persisted state and
+  // messages generated before this field existed won't have it.
+  relatedControls?: string[];
+}
+
+export interface MeetingPrepEmail {
+  subject: string;
+  applicationSummary: string;
+  applicationUse: string;
+  checklistHighlights: string[];
+  openQuestions: MeetingPrepQuestion[];
+  closingNote: string;
+}
+
+export interface MeetingResponseTaskNote {
+  taskText: string;
+  note: string;
+}
+
+export interface MeetingResponseControlUpdate {
+  control: string;
+  taskNotes: MeetingResponseTaskNote[];
+  addTasks?: ChecklistTaskInput[];
+  markIrrelevantTaskTexts?: string[];
+  changeLogEntries?: Array<{
+    changeType: ChecklistChangeType;
+    taskText: string;
+    reason: string;
+  }>;
+  progressSummary?: string;
+  qaScore?: QaScoreLevel;
+  qaScoreRationale?: string;
+}
+
 export type Command =
   | {
       action: "CREATE_APPLICATION";
@@ -173,6 +219,7 @@ export type Command =
       action: "UPDATE_APPLICATION_CONTEXT";
       payload: {
         application: string;
+        hosting?: string;
         context: ApplicationContextInput;
       };
     }
@@ -348,6 +395,25 @@ export type Command =
   | {
       action: "EXPORT_PROGRESS_REPORT";
       payload: {
+        message?: string;
+      };
+    }
+  | {
+      action: "EXPORT_MEETING_PREP_EMAIL";
+      payload: {
+        application: string;
+        email: MeetingPrepEmail;
+        message?: string;
+      };
+    }
+  | {
+      action: "PROCESS_MEETING_RESPONSE";
+      payload: {
+        application: string;
+        hosting?: string;
+        context?: ApplicationContextInput;
+        controlUpdates: MeetingResponseControlUpdate[];
+        unmatchedNotes?: string[];
         message?: string;
       };
     }
@@ -781,6 +847,156 @@ function convertTaskInputs(
   );
 }
 
+type RegeneratedTasksMergeResult = {
+  tasks: ChecklistTask[];
+  addedTaskTexts: string[];
+};
+
+// Regeneration must never silently discard notes or completion
+// state. Every freshly generated task is matched back to an existing
+// one by normalized text so its id/notes/completed/irrelevant state
+// carries forward; only its category/required/learningId are allowed
+// to change. Any existing task that already has notes on it survives
+// even if the regenerated list didn't happen to repeat it -- only
+// note-free tasks are freely replaceable.
+function mergeRegeneratedTasks(
+  existingTasks: ChecklistTask[],
+  newTaskInputs: ChecklistTaskInput[]
+): RegeneratedTasksMergeResult {
+  const existingByNormalizedText = new Map(
+    existingTasks.map((task) => [
+      normalizeText(task.text),
+      task,
+    ])
+  );
+
+  const matchedExistingIds = new Set<string>();
+  const addedTaskTexts: string[] = [];
+
+  const mergedFromNew = newTaskInputs
+    .filter((input) =>
+      Boolean(String(input.text ?? "").trim())
+    )
+    .map((input) => {
+      const text = String(input.text).trim();
+
+      const existing =
+        existingByNormalizedText.get(
+          normalizeText(text)
+        );
+
+      if (existing) {
+        matchedExistingIds.add(existing.id);
+
+        return {
+          ...existing,
+          text,
+          category:
+            input.category || existing.category,
+          required:
+            input.required !== undefined
+              ? input.required
+              : existing.required,
+          learningId:
+            input.learningId ??
+            existing.learningId,
+        };
+      }
+
+      addedTaskTexts.push(text);
+
+      return createChecklistTask(input);
+    });
+
+  const preservedWithNotes = existingTasks.filter(
+    (task) =>
+      !matchedExistingIds.has(task.id) &&
+      task.notes.length > 0
+  );
+
+  return {
+    tasks: cleanChecklistTasks([
+      ...mergedFromNew,
+      ...preservedWithNotes,
+    ]),
+    addedTaskTexts,
+  };
+}
+
+// Captures everything a regeneration is supposed to react to: every
+// checklist item's notes and irrelevant state, the control's own
+// notes, and the application's context fields and notes. Comparing
+// this against the value stored at the last regeneration is how a
+// new regenerate request can tell "nothing has changed" and decline
+// to touch the checklist. Task order never affects the result.
+function computeControlRegenerationSignature(
+  application: Pick<
+    Application,
+    | "hosting"
+    | "applicationPurpose"
+    | "businessProcess"
+    | "applicationOwner"
+    | "technicalOwner"
+    | "applicationContacts"
+    | "integrations"
+    | "identityTypes"
+    | "hostingDetails"
+    | "dataClassification"
+    | "financialRelevance"
+    | "notes"
+  >,
+  control: Pick<
+    ComplianceControl,
+    "notes" | "nextTasks"
+  >
+): string {
+  // Keyed by normalized task text rather than task id -- ids can
+  // change across a merge/regeneration, but the wording a note was
+  // recorded against is the thing that actually matters here.
+  const allTaskNotes = control.nextTasks
+    .flatMap((task) =>
+      task.notes.map(
+        (note) =>
+          `${normalizeText(task.text)}::${note}`
+      )
+    )
+    .sort();
+
+  const irrelevantMarkers = control.nextTasks
+    .filter((task) => task.irrelevant)
+    .map(
+      (task) =>
+        `${normalizeText(task.text)}::${
+          task.irrelevantReason ?? ""
+        }`
+    )
+    .sort();
+
+  return JSON.stringify({
+    controlNotes: control.notes,
+    allTaskNotes,
+    irrelevantMarkers,
+    hosting: application.hosting,
+    applicationPurpose:
+      application.applicationPurpose,
+    businessProcess:
+      application.businessProcess,
+    applicationOwner:
+      application.applicationOwner,
+    technicalOwner: application.technicalOwner,
+    applicationContacts:
+      application.applicationContacts,
+    integrations: application.integrations,
+    identityTypes: application.identityTypes,
+    hostingDetails: application.hostingDetails,
+    dataClassification:
+      application.dataClassification,
+    financialRelevance:
+      application.financialRelevance,
+    applicationNotes: application.notes,
+  });
+}
+
 function applyNoteUpdate(
   existingNotes: string[],
   mode: NoteMode,
@@ -968,6 +1184,8 @@ export function refreshControlState(
       control.qaScore || "Not Started",
     qaScoreRationale:
       control.qaScoreRationale || "",
+    lastRegeneratedSignature:
+      control.lastRegeneratedSignature || "",
   };
 
   const requiredTasks =
@@ -1407,6 +1625,12 @@ function createControl(
     qaScore: "Not Started",
     qaScoreRationale:
       "No work notes have been added against this control's checklist yet.",
+
+    // Empty means "never regenerated" -- the no-op check in
+    // REGENERATE_CONTROL_CHECKLIST / GENERATE_CONTEXTUAL_CHECKLISTS
+    // always proceeds in that case, since there is no meaningful
+    // baseline yet to compare against.
+    lastRegeneratedSignature: "",
   };
 }
 
@@ -1535,6 +1759,126 @@ export function updateApplicationContextValues(
   };
 }
 
+function applyMeetingResponseControlUpdate(
+  control: ComplianceControl,
+  update: MeetingResponseControlUpdate
+): {
+  control: ComplianceControl;
+  unmatchedTaskTexts: string[];
+} {
+  const unmatchedTaskTexts: string[] = [];
+
+  const tasksWithNotes = (
+    update.taskNotes ?? []
+  ).reduce((tasks, taskNote) => {
+    const targetTask = findChecklistTask(
+      tasks,
+      taskNote.taskText
+    );
+
+    const noteText = String(
+      taskNote.note ?? ""
+    ).trim();
+
+    if (!targetTask) {
+      unmatchedTaskTexts.push(
+        taskNote.taskText
+      );
+
+      return tasks;
+    }
+
+    if (!noteText) {
+      return tasks;
+    }
+
+    return tasks.map((task) =>
+      task.id === targetTask.id
+        ? {
+            ...task,
+            notes: [...task.notes, noteText],
+          }
+        : task
+    );
+  }, control.nextTasks);
+
+  const markIrrelevantTaskTexts =
+    update.markIrrelevantTaskTexts ?? [];
+
+  const tasksAfterMarking = tasksWithNotes.map(
+    (task) => {
+      const shouldMarkIrrelevant =
+        markIrrelevantTaskTexts.some(
+          (text) =>
+            normalizeText(text) ===
+            normalizeText(task.text)
+        );
+
+      if (!shouldMarkIrrelevant) {
+        return task;
+      }
+
+      const matchingEntry = (
+        update.changeLogEntries ?? []
+      ).find(
+        (entry) =>
+          entry.changeType ===
+            "MARKED_IRRELEVANT" &&
+          normalizeText(entry.taskText) ===
+            normalizeText(task.text)
+      );
+
+      return {
+        ...task,
+        irrelevant: true,
+        irrelevantReason: String(
+          matchingEntry?.reason ?? ""
+        ).trim(),
+      };
+    }
+  );
+
+  const newTasks = convertTaskInputs(
+    update.addTasks ?? []
+  );
+
+  const finalTasks = cleanChecklistTasks([
+    ...tasksAfterMarking,
+    ...newTasks,
+  ]);
+
+  const changeLogEntries = (
+    update.changeLogEntries ?? []
+  ).map((entry) => ({
+    id: createId("log"),
+    timestamp: new Date().toISOString(),
+    changeType: entry.changeType,
+    taskText: entry.taskText,
+    reason: String(entry.reason ?? "").trim(),
+    changedBy: "assistant" as const,
+  }));
+
+  return {
+    control: refreshControlState({
+      ...control,
+      nextTasks: finalTasks,
+      checklistChangeLog: [
+        ...control.checklistChangeLog,
+        ...changeLogEntries,
+      ],
+      progressSummary:
+        update.progressSummary ??
+        control.progressSummary,
+      qaScore:
+        update.qaScore ?? control.qaScore,
+      qaScoreRationale:
+        update.qaScoreRationale ??
+        control.qaScoreRationale,
+    }),
+    unmatchedTaskTexts,
+  };
+}
+
 export function executeCommand(
   command: Command,
   currentApplications: Application[]
@@ -1571,6 +1915,20 @@ export function executeCommand(
           command.payload.message ?? ""
         ).trim() ||
         "The executive progress report was generated.",
+    };
+  }
+
+  if (
+    command.action ===
+    "EXPORT_MEETING_PREP_EMAIL"
+  ) {
+    return {
+      applications: currentApplications,
+      message:
+        String(
+          command.payload.message ?? ""
+        ).trim() ||
+        "The meeting-prep email was drafted.",
     };
   }
 
@@ -1795,9 +2153,18 @@ export function executeCommand(
             return currentApplication;
           }
 
+          const applicationWithHosting =
+            command.payload.hosting
+              ? {
+                  ...currentApplication,
+                  hosting:
+                    command.payload.hosting,
+                }
+              : currentApplication;
+
           const updatedApplication =
             updateApplicationContextValues(
-              currentApplication,
+              applicationWithHosting,
               command.payload.context
             );
 
@@ -2025,6 +2392,43 @@ export function executeCommand(
       };
     }
 
+    const currentSignature =
+      computeControlRegenerationSignature(
+        application,
+        control
+      );
+
+    if (
+      control.lastRegeneratedSignature &&
+      control.lastRegeneratedSignature ===
+        currentSignature
+    ) {
+      return {
+        applications: currentApplications,
+        message: `No changes found to regenerate the checklist for ${control.name} -- the notes and application context are the same as the last regeneration.`,
+      };
+    }
+
+    const {
+      tasks: mergedTasks,
+      addedTaskTexts,
+    } = mergeRegeneratedTasks(
+      control.nextTasks,
+      command.payload.tasks
+    );
+
+    const regenerationChangeLogEntries =
+      addedTaskTexts.map((text) => ({
+        id: createId("log"),
+        timestamp:
+          new Date().toISOString(),
+        changeType: "ADDED" as const,
+        taskText: text,
+        reason:
+          "Added during checklist regeneration.",
+        changedBy: "assistant" as const,
+      }));
+
     return {
       applications: currentApplications.map(
         (currentApplication) =>
@@ -2069,17 +2473,26 @@ export function executeCommand(
                             controlStatus:
                               "Checklist Review Pending",
 
-                            nextTasks:
-                              convertTaskInputs(
-                                command.payload.tasks
-                              ),
+                            nextTasks: mergedTasks,
+
+                            checklistChangeLog: [
+                              ...currentControl.checklistChangeLog,
+                              ...regenerationChangeLogEntries,
+                            ],
+
+                            lastRegeneratedSignature:
+                              currentSignature,
                           })
                         : currentControl
                   ),
               }
             : currentApplication
       ),
-      message: `${control.name} contextual checklist was regenerated and is pending review.`,
+      message: `${control.name} contextual checklist was regenerated and is pending review.${
+        addedTaskTexts.length > 0
+          ? ` ${addedTaskTexts.length} new item(s) added; existing notes were kept.`
+          : " Existing notes were kept."
+      }`,
     };
   }
 
@@ -2108,6 +2521,8 @@ export function executeCommand(
       command.payload.controls;
 
     const skippedControlNames: string[] = [];
+    const unchangedControlNames: string[] = [];
+    let totalAddedTasks = 0;
 
     const updatedApplications =
       currentApplications.map(
@@ -2165,6 +2580,51 @@ export function executeCommand(
                     return currentControl;
                   }
 
+                  const currentSignature =
+                    computeControlRegenerationSignature(
+                      currentApplication,
+                      currentControl
+                    );
+
+                  if (
+                    currentControl.lastRegeneratedSignature &&
+                    currentControl.lastRegeneratedSignature ===
+                      currentSignature
+                  ) {
+                    unchangedControlNames.push(
+                      currentControl.name
+                    );
+
+                    return currentControl;
+                  }
+
+                  const {
+                    tasks: mergedTasks,
+                    addedTaskTexts,
+                  } = mergeRegeneratedTasks(
+                    currentControl.nextTasks,
+                    update.tasks
+                  );
+
+                  totalAddedTasks +=
+                    addedTaskTexts.length;
+
+                  const regenerationChangeLogEntries =
+                    addedTaskTexts.map(
+                      (text) => ({
+                        id: createId("log"),
+                        timestamp:
+                          new Date().toISOString(),
+                        changeType:
+                          "ADDED" as const,
+                        taskText: text,
+                        reason:
+                          "Added during checklist regeneration.",
+                        changedBy:
+                          "assistant" as const,
+                      })
+                    );
+
                   return refreshControlState({
                     ...currentControl,
 
@@ -2189,10 +2649,15 @@ export function executeCommand(
                     controlStatus:
                       "Checklist Review Pending",
 
-                    nextTasks:
-                      convertTaskInputs(
-                        update.tasks
-                      ),
+                    nextTasks: mergedTasks,
+
+                    checklistChangeLog: [
+                      ...currentControl.checklistChangeLog,
+                      ...regenerationChangeLogEntries,
+                    ],
+
+                    lastRegeneratedSignature:
+                      currentSignature,
                   });
                 }
               ),
@@ -2213,9 +2678,28 @@ export function executeCommand(
           }.`
         : "";
 
+    const unchangedMessage =
+      unchangedControlNames.length > 0
+        ? ` No changes found to regenerate for ${unchangedControlNames.join(", ")} -- the notes and application context are the same as the last regeneration.`
+        : "";
+
+    const regeneratedCount =
+      controlUpdates.length -
+      skippedControlNames.length -
+      unchangedControlNames.length;
+
+    const leadMessage =
+      regeneratedCount > 0
+        ? `Contextual control objectives and checklists were generated for ${applicationId}. Review and approve each checklist before beginning formal work. Existing notes were kept${
+            totalAddedTasks > 0
+              ? ` and ${totalAddedTasks} new item(s) were added`
+              : ""
+          }.`
+        : `No checklist changes were made for ${applicationId}.`;
+
     return {
       applications: updatedApplications,
-      message: `Contextual control objectives and checklists were generated for ${applicationId}. Review and approve each checklist before beginning formal work.${skippedMessage}`,
+      message: `${leadMessage}${unchangedMessage}${skippedMessage}`,
     };
   }
 
@@ -2871,6 +3355,169 @@ export function executeCommand(
     return {
       applications: updatedApplications,
       message: `Note added to "${targetTask.text}" on ${control.name}.${changeSummary}`,
+    };
+  }
+
+  if (
+    command.action ===
+    "PROCESS_MEETING_RESPONSE"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} was not found.`,
+      };
+    }
+
+    const controlUpdates =
+      command.payload.controlUpdates ?? [];
+
+    const updatedControlNames: string[] = [];
+    const notFoundControlNames: string[] = [];
+    const notFoundTaskTexts: string[] = [];
+
+    const updatedApplications =
+      currentApplications.map(
+        (currentApplication) => {
+          if (
+            currentApplication.id !==
+            application.id
+          ) {
+            return currentApplication;
+          }
+
+          const applicationWithHosting =
+            command.payload.hosting
+              ? {
+                  ...currentApplication,
+                  hosting:
+                    command.payload.hosting,
+                }
+              : currentApplication;
+
+          const applicationWithContext =
+            command.payload.context
+              ? updateApplicationContextValues(
+                  applicationWithHosting,
+                  command.payload.context
+                )
+              : applicationWithHosting;
+
+          const controlsById = new Map(
+            applicationWithContext.controls.map(
+              (control) => [
+                control.id,
+                control,
+              ]
+            )
+          );
+
+          for (const update of controlUpdates) {
+            const targetControl = findControl(
+              Array.from(
+                controlsById.values()
+              ),
+              update.control
+            );
+
+            if (!targetControl) {
+              notFoundControlNames.push(
+                update.control
+              );
+
+              continue;
+            }
+
+            const {
+              control: updatedControl,
+              unmatchedTaskTexts,
+            } =
+              applyMeetingResponseControlUpdate(
+                targetControl,
+                update
+              );
+
+            controlsById.set(
+              targetControl.id,
+              updatedControl
+            );
+
+            updatedControlNames.push(
+              targetControl.name
+            );
+
+            notFoundTaskTexts.push(
+              ...unmatchedTaskTexts.map(
+                (text) =>
+                  `${targetControl.name}: "${text}"`
+              )
+            );
+          }
+
+          const unmatchedNotes = (
+            command.payload.unmatchedNotes ??
+            []
+          )
+            .map((note) =>
+              String(note ?? "").trim()
+            )
+            .filter(Boolean);
+
+          return {
+            ...applicationWithContext,
+            controls:
+              applicationWithContext.controls.map(
+                (control) =>
+                  controlsById.get(
+                    control.id
+                  ) ?? control
+              ),
+            notes:
+              unmatchedNotes.length > 0
+                ? [
+                    ...applicationWithContext.notes,
+                    ...unmatchedNotes,
+                  ]
+                : applicationWithContext.notes,
+          };
+        }
+      );
+
+    const messageParts: string[] = [];
+
+    if (updatedControlNames.length > 0) {
+      messageParts.push(
+        `Notes from the reply were applied to ${updatedControlNames.join(", ")}. Regenerate the checklist for these controls to fold the new information in.`
+      );
+    }
+
+    if (notFoundControlNames.length > 0) {
+      messageParts.push(
+        `Could not match these controls: ${notFoundControlNames.join(", ")}.`
+      );
+    }
+
+    if (notFoundTaskTexts.length > 0) {
+      messageParts.push(
+        `Could not match these checklist items: ${notFoundTaskTexts.join("; ")}.`
+      );
+    }
+
+    return {
+      applications: updatedApplications,
+      message:
+        messageParts.join(" ") ||
+        "No matching checklist items or controls were found for this reply.",
     };
   }
 

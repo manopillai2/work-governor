@@ -44,6 +44,9 @@ type ApplicationCardProps = {
     context: ApplicationContextInput
   ) => void;
 
+  onRegenerateAllChecklists: () => void;
+  isProcessing?: boolean;
+
   children?: ReactNode;
 };
 
@@ -81,9 +84,17 @@ export default function ApplicationCard({
   onToggle,
   onSaveContext,
 
+  onRegenerateAllChecklists,
+  isProcessing = false,
+
   children,
 }: ApplicationCardProps) {
   const [draftNote, setDraftNote] = useState("");
+
+  const [
+    showRegenerateWarning,
+    setShowRegenerateWarning,
+  ] = useState(false);
 
   function handleSubmitNote() {
     const trimmedNote = draftNote.trim();
@@ -348,7 +359,22 @@ export default function ApplicationCard({
                   </span>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex flex-wrap justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowRegenerateWarning(true)
+                    }
+                    disabled={
+                      controls.length === 0 ||
+                      isProcessing
+                    }
+                    className="rounded-lg border border-amber-600 px-5 py-2 text-sm font-semibold text-amber-300 hover:bg-amber-950 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Regenerate Checklist for All
+                    Controls
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleSaveContext}
@@ -359,6 +385,81 @@ export default function ApplicationCard({
                 </div>
             </div>
           </CollapsibleSection>
+
+          {showRegenerateWarning ? (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+              onClick={() =>
+                setShowRegenerateWarning(false)
+              }
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                onClick={(event) =>
+                  event.stopPropagation()
+                }
+                className="w-full max-w-md rounded-xl border border-amber-700/60 bg-slate-900 p-6 shadow-2xl"
+              >
+                <h4 className="text-base font-semibold text-amber-300">
+                  Regenerate checklists for every
+                  control?
+                </h4>
+
+                <p className="mt-3 text-sm leading-6 text-slate-300">
+                  You&rsquo;re about to regenerate the
+                  checklist for every control on this
+                  application. Your existing notes are
+                  not deleted by this.
+                </p>
+
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  But every control&rsquo;s checklist gets
+                  reset to &ldquo;Review Pending,&rdquo;
+                  even controls this context change had
+                  nothing to do with -- and if the
+                  regenerated wording doesn&rsquo;t match
+                  an existing item closely, the old item
+                  (with your note) stays alongside a new,
+                  differently-worded one instead of
+                  cleanly replacing it.
+                </p>
+
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  If you believe this context change only
+                  affects one control, regenerate that
+                  control&rsquo;s checklist individually
+                  instead. Regenerating everything is
+                  safest right after an application is
+                  first added, while every checklist is
+                  still new.
+                </p>
+
+                <div className="mt-5 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowRegenerateWarning(false)
+                    }
+                    className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRegenerateWarning(false);
+                      onRegenerateAllChecklists();
+                    }}
+                    className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500"
+                  >
+                    Regenerate All Checklists
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <CollapsibleSection
             title="Application Notes"
