@@ -41,6 +41,7 @@ import {
   type ApplicationFilterState,
 } from "@/services/applicationFilters";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
+import { formatMeetingPrepEmailText } from "@/services/meetingPrepEmail";
 import {
   createAndSaveBackup,
   downloadApplicationBackup,
@@ -96,7 +97,8 @@ type StoredWorkGovernorData = {
 
 function createMessage(
   role: ChatMessage["role"],
-  content: string
+  content: string,
+  attachment?: ChatMessage["attachment"]
 ): ChatMessage {
   return {
     id: `${role}-${Date.now()}-${Math.random()
@@ -104,6 +106,7 @@ function createMessage(
       .slice(2, 8)}`,
     role,
     content,
+    attachment,
   };
 }
 
@@ -351,6 +354,19 @@ export default function Home() {
   const [isLoaded, setIsLoaded] =
     useState(false);
 
+  // Set only on a genuinely failed load (never on success). While
+  // this is set, isLoaded stays false, which keeps the auto-save
+  // effect below from ever firing -- otherwise a transient load
+  // failure would clear applications/messages to [] and the save
+  // effect would immediately persist that empty state, wiping the
+  // real data in the database.
+  const [loadError, setLoadError] = useState<
+    string | null
+  >(null);
+
+  const [loadAttempt, setLoadAttempt] =
+    useState(0);
+
   const [filters, setFilters] =
     useState<ApplicationFilterState>(
       EMPTY_APPLICATION_FILTERS
@@ -471,19 +487,27 @@ export default function Home() {
             ? data.messages
             : []
         );
+
+        // Only now is it safe to let the auto-save effect run --
+        // it has the real, current server state to build on.
+        setLoadError(null);
+        setIsLoaded(true);
       } catch (error) {
         console.error(
           "Unable to restore Work Governor data:",
           error
         );
 
+        // Deliberately do NOT touch applications/messages or flip
+        // isLoaded here -- doing so would arm the auto-save effect
+        // with empty state and it would immediately overwrite the
+        // real data in the database with nothing.
         if (!cancelled) {
-          setApplications([]);
-          setMessages([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoaded(true);
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load Work Governor data from the database."
+          );
         }
       }
     }
@@ -498,7 +522,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -820,34 +844,15 @@ export default function Home() {
     );
   }
 
-  async function triggerLearningAnalysis(
-    command: Command,
-    resultApplications: Application[]
+  async function analyzeChecklistChange(
+    application: Application,
+    control: ComplianceControl,
+    changeLogEntries: Array<{
+      changeType: string;
+      taskText: string;
+      reason: string;
+    }>
   ) {
-    if (
-      command.action !== "UPDATE_TASK_NOTES" ||
-      !command.payload.changeLogEntries ||
-      command.payload.changeLogEntries.length === 0
-    ) {
-      return;
-    }
-
-    const application = findApplication(
-      resultApplications,
-      command.payload.application
-    );
-
-    const control = application
-      ? findControl(
-          application.controls,
-          command.payload.control
-        )
-      : undefined;
-
-    if (!application || !control) {
-      return;
-    }
-
     try {
       const response = await fetch(
         "/api/learnings/analyze",
@@ -863,8 +868,7 @@ export default function Home() {
             hosting: application.hosting,
             controlObjective:
               control.controlObjective,
-            changeLogEntries:
-              command.payload.changeLogEntries,
+            changeLogEntries,
           }),
         }
       );
@@ -889,6 +893,83 @@ export default function Home() {
         "Unable to analyze checklist change for learnings:",
         error
       );
+    }
+  }
+
+  async function triggerLearningAnalysis(
+    command: Command,
+    resultApplications: Application[]
+  ) {
+    if (command.action === "UPDATE_TASK_NOTES") {
+      if (
+        !command.payload.changeLogEntries ||
+        command.payload.changeLogEntries.length === 0
+      ) {
+        return;
+      }
+
+      const application = findApplication(
+        resultApplications,
+        command.payload.application
+      );
+
+      const control = application
+        ? findControl(
+            application.controls,
+            command.payload.control
+          )
+        : undefined;
+
+      if (!application || !control) {
+        return;
+      }
+
+      await analyzeChecklistChange(
+        application,
+        control,
+        command.payload.changeLogEntries
+      );
+
+      return;
+    }
+
+    if (
+      command.action ===
+      "PROCESS_MEETING_RESPONSE"
+    ) {
+      const application = findApplication(
+        resultApplications,
+        command.payload.application
+      );
+
+      if (!application) {
+        return;
+      }
+
+      for (const update of command.payload
+        .controlUpdates) {
+        if (
+          !update.changeLogEntries ||
+          update.changeLogEntries.length === 0
+        ) {
+          continue;
+        }
+
+        const control = findControl(
+          application.controls,
+          update.control
+        );
+
+        if (!control) {
+          continue;
+        }
+
+        await analyzeChecklistChange(
+          application,
+          control,
+          update.changeLogEntries
+        );
+      }
     }
   }
 
@@ -1025,6 +1106,55 @@ export default function Home() {
             createMessage(
               "assistant",
               exportMessage
+            ),
+          ]
+        );
+
+        return;
+      }
+
+      if (
+        data.command.action ===
+        "EXPORT_MEETING_PREP_EMAIL"
+      ) {
+        const targetApplication =
+          findApplication(
+            applications,
+            data.command.payload.application
+          );
+
+        const applicationName =
+          targetApplication?.name ||
+          data.command.payload.application;
+
+        const emailPayload =
+          data.command.payload.email;
+
+        const { subject, body } =
+          formatMeetingPrepEmailText(
+            applicationName,
+            emailPayload
+          );
+
+        const exportMessage =
+          data.command.payload.message ||
+          data.assistantMessage ||
+          "The meeting-prep email was drafted.";
+
+        setMessages(
+          (currentMessages) => [
+            ...currentMessages,
+
+            createMessage(
+              "assistant",
+              exportMessage,
+              {
+                type: "meeting-prep-email",
+                applicationName,
+                subject,
+                body,
+                email: emailPayload,
+              }
             ),
           ]
         );
@@ -1265,9 +1395,33 @@ export default function Home() {
         </div>
 
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-slate-400">
-            Loading Work Governor...
-          </p>
+          {loadError ? (
+            <div className="max-w-md text-center">
+              <p className="text-sm text-red-400">
+                {loadError}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Your existing data has not been
+                touched -- nothing is saved
+                until it loads successfully.
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  setLoadAttempt(
+                    (current) => current + 1
+                  )
+                }
+                className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">
+              Loading Work Governor...
+            </p>
+          )}
         </div>
       </main>
     );
@@ -1442,6 +1596,12 @@ export default function Home() {
                             context
                           )
                         }
+                        onRegenerateAllChecklists={() =>
+                          handleSend(
+                            `Regenerate contextual checklists for ${application.id}.`
+                          )
+                        }
+                        isProcessing={isProcessing}
                       >
                         {application.controls.length ===
                         0 ? (
@@ -1459,9 +1619,6 @@ export default function Home() {
                                   }
                                   framework={
                                     control.framework
-                                  }
-                                  homeworkStatus={
-                                    control.homeworkStatus
                                   }
                                   stage={
                                     control.stage
@@ -1492,9 +1649,6 @@ export default function Home() {
                                   }
                                   checklistChangeLog={
                                     control.checklistChangeLog
-                                  }
-                                  notes={
-                                    control.notes
                                   }
                                   nextTasks={
                                     control.nextTasks

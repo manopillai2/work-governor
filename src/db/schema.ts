@@ -9,6 +9,7 @@ import type {
   ChecklistChangeLogEntry,
   ChecklistTask,
 } from "@/services/commandEngine";
+import type { ChatMessageAttachment } from "@/components/ChatPanel";
 
 export const applications = pgTable("applications", {
   id: text("id").primaryKey(),
@@ -76,6 +77,10 @@ export const controls = pgTable("controls", {
   qaScore: text("qa_score").notNull().default("Not Started"),
   qaScoreRationale: text("qa_score_rationale").notNull().default(""),
 
+  lastRegeneratedSignature: text("last_regenerated_signature")
+    .notNull()
+    .default(""),
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -88,6 +93,7 @@ export const chatMessages = pgTable("chat_messages", {
   id: text("id").primaryKey(),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  attachment: jsonb("attachment").$type<ChatMessageAttachment>(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

@@ -15,6 +15,8 @@ import type {
   ControlStatus,
   Framework,
   HomeworkStatus,
+  MeetingPrepEmail,
+  MeetingResponseControlUpdate,
   NoteMode,
   QaScoreLevel,
   WorkflowStage,
@@ -60,6 +62,8 @@ type ClaudeCommandInput = {
     | "DELETE_ALL_APPLICATIONS"
     | "CLEAR_CHAT_HISTORY"
     | "EXPORT_PROGRESS_REPORT"
+    | "EXPORT_MEETING_PREP_EMAIL"
+    | "PROCESS_MEETING_RESPONSE"
     | "BACKUP_APPLICATION_DATA"
     | "LIST_BACKUPS"
     | "ROLLBACK_BACKUP"
@@ -127,6 +131,11 @@ type ClaudeCommandInput = {
 
     confirmed?: boolean;
     message?: string;
+
+    email?: MeetingPrepEmail;
+
+    controlUpdates?: MeetingResponseControlUpdate[];
+    unmatchedNotes?: string[];
   };
 };
 
@@ -499,7 +508,12 @@ export async function POST(
     const response =
       await anthropic.messages.create({
         model: "claude-haiku-4-5",
-        max_tokens: 6000,
+        // GENERATE_CONTEXTUAL_CHECKLISTS can regenerate every control on an
+        // application in one response -- 6000 was tight enough to truncate
+        // the tool call mid-JSON on applications with several controls,
+        // producing a malformed command instead of a clear error. 16000 is
+        // the safe non-streaming ceiling for this model/request shape.
+        max_tokens: 16000,
 
         system: `
 You are the command interpreter and contextual compliance advisor for Work Governor.
@@ -967,6 +981,14 @@ Use UPDATE_APPLICATION_CONTEXT when the user provides or changes:
 - financial relevance;
 - data classification.
 
+payload.hosting must be set to a short hosting category -- SaaS,
+PaaS, IaaS, On-premises, Hybrid, or Unknown -- whenever the user
+states or clearly implies the hosting model, exactly like
+payload.hosting under CREATE APPLICATION. This is separate from
+payload.context.hostingDetails, which holds the fuller architecture
+description. Leave payload.hosting unset when hosting is not part of
+this update.
+
 Do not regenerate checklists in the same command because only one command can be returned.
 
 After updating context, explain through the command result that contextual checklists should be regenerated.
@@ -1111,6 +1133,80 @@ generic. Every control's argosObjective is shown to the user
 together in one Argos Rule Logic section per application, so vague
 objectives reduce the value of that section.
 
+PROCESSING THE APPLICATION TEAM'S REPLY
+
+Use PROCESS_MEETING_RESPONSE when the user pastes back the
+application team's reply or answers to a meeting-prep email, for
+example:
+
+- here's the reply from the app team for APP-18: ...;
+- the application team answered these questions: ...;
+- got this back before our meeting: ...;
+- APP-02's team sent this over: ...
+
+Unlike UPDATE_TASK_NOTES, which records one note against one
+checklist item, this reply may answer several different things at
+once, possibly across several different controls, and possibly also
+application-context questions (hosting, owners, integrations,
+identity types, and so on). Read the whole reply and distribute every
+piece of information to everywhere it belongs, all in this one
+command.
+
+payload.hosting: set this to a short hosting category -- SaaS, PaaS,
+IaaS, On-premises, Hybrid, or Unknown -- whenever the reply states or
+clearly implies the hosting model, exactly like payload.hosting under
+CREATE APPLICATION. This is separate from
+payload.context.hostingDetails, which holds the fuller architecture
+description (specific platform, region, data center, and so on).
+Leave payload.hosting unset only when the reply does not address
+hosting at all.
+
+payload.context: include only the application-context fields the
+reply actually answers. Omit any field the reply does not address --
+never overwrite an existing value with a guess.
+
+payload.controlUpdates: one entry per control the reply provides
+information for. For each entry:
+
+- control is the existing control's name, exactly as shown in CURRENT
+  WORK GOVERNOR DATA. Never invent a control that does not exist.
+- taskNotes is one entry per checklist item the reply answers on that
+  control: taskText must match an existing checklist item's exact
+  text for that control, and note is a grammatically corrected
+  version of what the reply actually said for that item -- fix
+  spelling, grammar, and punctuation only, never add, remove, or
+  reinterpret any fact.
+- After applying those notes, apply the same adaptive-analysis rules
+  as UPDATE_TASK_NOTES: if the combined notes reveal a genuine gap,
+  add a new item through addTasks with a fitting category and
+  required flag; if an existing item is now redundant or fully
+  answered with nothing further to track, mark it through
+  markIrrelevantTaskTexts. Every addition and every irrelevant-marking
+  needs a matching changeLogEntries entry with a specific reason.
+  Only change the checklist when the reply gives real evidence for it.
+- Always refresh progressSummary, qaScore, and qaScoreRationale for
+  that control based on every note now on file for it, not only the
+  new ones, using the same rubric described under CHECKLIST ITEM
+  NOTES AND ADAPTIVE ANALYSIS.
+
+If part of the reply does not clearly map to any existing checklist
+item or context field, put a grammatically corrected version of that
+part into payload.unmatchedNotes instead of forcing a false match or
+discarding it.
+
+Never invent a checklist item, control, or application that does not
+exist. If the reply references something that cannot be matched to
+this application at all, use RESPOND_ONLY and ask which application
+or control it belongs to.
+
+Do not regenerate any checklist in this same command -- checklist
+regeneration only happens when the user separately asks for it with
+REGENERATE_CONTROL_CHECKLIST or GENERATE_CONTEXTUAL_CHECKLISTS, even
+when the new notes make regeneration obviously worthwhile.
+payload.message should summarize what was recorded and explicitly
+suggest regenerating the checklist for the controls that received
+meaningful new information.
+
 DELETION
 
 Deleting one application requires confirmation.
@@ -1137,6 +1233,139 @@ Use EXPORT_PROGRESS_REPORT when the user says:
 EXPORT_PROGRESS_REPORT does not change applications, controls, context, checklists, notes, or status.
 
 payload.message should briefly acknowledge that the executive PDF report was generated.
+
+MEETING-PREP EMAIL EXPORT
+
+Use EXPORT_MEETING_PREP_EMAIL when the user says:
+
+- give me an email ready version for APP-18;
+- draft a prep email for cricket;
+- email ready export before the meeting;
+- send this to the application team before we meet;
+- I need to email the app team before our review.
+
+This produces a short, plain-language email the user sends to the
+application team BEFORE the compliance meeting, so the team can come
+prepared with real answers instead of being surprised in the room.
+
+Every one of these requests is answered with action
+EXPORT_MEETING_PREP_EMAIL and a fully populated payload.email, in
+this same response, with no exceptions. Do not use RESPOND_ONLY for
+this trigger for any reason -- not to say the email is coming, not to
+summarize what it will contain, not to list what context is missing
+and wait, not to offer a choice between drafting now versus gathering
+information first, not even when the application has zero context
+recorded and zero controls with any notes. There is no scenario under
+this trigger where RESPOND_ONLY is the correct action. If the
+application is a bare shell with only a name and no other data at
+all, still draft payload.email: applicationSummary and
+applicationUse plainly state that nothing is documented yet, and
+openQuestions is built entirely from that emptiness (purpose, owner,
+hosting, and so on). That sparse email is itself the correct,
+complete answer -- it is never a reason to stop and ask the user what
+to do instead.
+
+Build payload.email from CURRENT WORK GOVERNOR DATA for that
+application only. Never invent facts the data does not contain --
+anything unknown becomes an open question instead.
+
+payload.email.subject: one short line naming the application and the
+purpose of the email.
+
+payload.email.applicationSummary: two to three plain sentences on
+what the application is and why it exists, built from
+applicationPurpose and businessProcess. If these are missing, say so
+plainly rather than guessing.
+
+payload.email.applicationUse: one to two plain sentences on how the
+application is actually used day to day (who touches it, what
+process it supports), built from businessProcess, integrations, and
+any application notes. If unknown, do not guess -- leave it brief and
+let the open questions cover it.
+
+payload.email.checklistHighlights: four to eight short, plain-English
+bullets summarizing where things stand across every control on this
+application right now -- what's already confirmed, what's still open,
+and anything already captured in notes. Write for someone outside
+compliance: no framework jargon, no internal status labels.
+
+payload.email.openQuestions: five to eight questions, one per
+distinct topic, that together cover every real gap in the
+application's context and open checklist items at a HIGH LEVEL, in
+plain language, so the application team can read and answer quickly
+without being compliance experts.
+
+First, group every gap -- across missing/partial application context
+fields and every required Discovery, Access, and Homework checklist
+task with no notes yet, across every control -- into a small set of
+topics (for example: hosting and architecture; ownership and who
+approves server/database/access changes; integrations and dependent
+systems; identity types and account inventory; business purpose and
+process; financial relevance; logging and monitoring access). Many
+individual checklist tasks and context fields will fall under the
+same topic -- that is expected. Ask exactly one question per topic,
+never more. Two questions that would be answered by the same fact
+from the application team (for example one asking "where is this
+hosted" and another separately asking "is this on AWS EC2") are
+duplicates -- merge them into a single question. Then rank topics by
+how foundational and commonly-unknown they are to an application
+team, and keep the top five to eight; drop the rest rather than
+padding the list.
+
+For each topic, ask at the right depth for what is already known,
+never re-asking something CURRENT WORK GOVERNOR DATA already answers.
+A topic has layers (broad category, then specific detail, then
+operational specifics), and a topic only gets dropped from
+openQuestions when every layer that a reasonable person would still
+want to know is answered -- knowing the broad category alone does
+NOT resolve the topic if a natural next-level question remains
+unanswered:
+
+- If a topic is entirely unanswered, ask its broad, foundational
+  layer (for example, for hosting: "Where is this application hosted
+  -- IaaS, PaaS, SaaS, on-premises, or a hybrid mix?").
+- If the broad layer is known but the next layer down is still open,
+  ask that next layer instead -- do not drop the topic and do not
+  repeat the broad question. For example: hosting known only as
+  "IaaS", with no specific platform or environment on file yet, is
+  still an open topic -- ask which specific platform and environment
+  (on-prem servers, AWS, Azure, GCP, a specific data center), not
+  whether it's IaaS again, and do not skip this topic just because
+  the broad category is known.
+- Only drop a topic from openQuestions once its specific, actionable
+  layer is on file (for hosting, that means a concrete platform and
+  environment are known, not just the broad category), or once every
+  layer a reasonable person would ask about has already been
+  answered by the data on file.
+
+This means the same application's meeting-prep email should read
+differently over time: broad and foundational the first time it's
+requested, and progressively more specific on later requests as
+context fields and checklist notes fill in from earlier replies.
+
+Every question must include exampleAnswer: a short, clearly
+illustrative example answer at the same depth as the question (never
+a real fact about this specific application) that shows the level of
+detail and the format expected, so the team knows how to answer well.
+
+Every question must also include relatedControls: the exact name of
+every control (as shown in CURRENT WORK GOVERNOR DATA) whose gap this
+question addresses. Because questions are merged across controls
+whenever they share the same underlying topic, most questions will
+list more than one control -- for example, a single hosting question
+often clears the way for both User Access Control and Change
+Management at once. List every control the answer will genuinely
+help, never just the first one that happened to raise the topic, and
+never a control this question has nothing to do with.
+
+payload.email.closingNote: one short, friendly sentence inviting a
+reply before the meeting.
+
+payload.message should briefly acknowledge that the meeting-prep
+email was drafted.
+
+EXPORT_MEETING_PREP_EMAIL does not change applications, controls,
+context, checklists, notes, or status.
 
 FULL DATA BACKUP
 
@@ -1221,6 +1450,17 @@ QUESTIONS AND FEEDBACK
 Use RESPOND_ONLY for explanations, questions, feedback, and clarification.
 
 Do not modify data when the user asks why something happened.
+
+HARD CONSTRAINT -- READ THIS LAST, IT OVERRIDES ANY HESITATION ABOVE
+
+If the latest user message is a request for a meeting-prep email
+(see MEETING-PREP EMAIL EXPORT), the tool call in this response MUST
+have action EXPORT_MEETING_PREP_EMAIL with payload.email fully
+filled in. A tool call with action RESPOND_ONLY, or with
+payload.email missing or empty, is an incorrect response to that
+request, full stop -- it does not matter how little is known about
+the application. Do not hedge, do not ask permission, do not
+describe the email without attaching it: attach it.
 
 Return exactly one execute_work_governor_command tool call.
 
@@ -1883,6 +2123,246 @@ ${message}
                     message: {
                       type: "string",
                     },
+
+                    email: {
+                      type: "object",
+
+                      properties: {
+                        subject: {
+                          type: "string",
+                        },
+
+                        applicationSummary: {
+                          type: "string",
+                        },
+
+                        applicationUse: {
+                          type: "string",
+                        },
+
+                        checklistHighlights: {
+                          type: "array",
+                          items: {
+                            type: "string",
+                          },
+                        },
+
+                        openQuestions: {
+                          type: "array",
+
+                          items: {
+                            type: "object",
+
+                            properties: {
+                              question: {
+                                type: "string",
+                              },
+
+                              exampleAnswer: {
+                                type: "string",
+                              },
+
+                              relatedControls: {
+                                type: "array",
+                                items: {
+                                  type: "string",
+                                },
+                              },
+                            },
+
+                            required: [
+                              "question",
+                              "exampleAnswer",
+                              "relatedControls",
+                            ],
+
+                            additionalProperties:
+                              false,
+                          },
+                        },
+
+                        closingNote: {
+                          type: "string",
+                        },
+                      },
+
+                      required: [
+                        "subject",
+                        "applicationSummary",
+                        "applicationUse",
+                        "checklistHighlights",
+                        "openQuestions",
+                        "closingNote",
+                      ],
+
+                      additionalProperties:
+                        false,
+                    },
+
+                    controlUpdates: {
+                      type: "array",
+
+                      items: {
+                        type: "object",
+
+                        properties: {
+                          control: {
+                            type: "string",
+                          },
+
+                          taskNotes: {
+                            type: "array",
+
+                            items: {
+                              type: "object",
+
+                              properties: {
+                                taskText: {
+                                  type: "string",
+                                },
+
+                                note: {
+                                  type: "string",
+                                },
+                              },
+
+                              required: [
+                                "taskText",
+                                "note",
+                              ],
+
+                              additionalProperties:
+                                false,
+                            },
+                          },
+
+                          addTasks: {
+                            type: "array",
+
+                            items: {
+                              type: "object",
+
+                              properties: {
+                                text: {
+                                  type: "string",
+                                },
+
+                                category: {
+                                  type: "string",
+
+                                  enum: [
+                                    "Homework",
+                                    "Discovery",
+                                    "Access",
+                                    "Evidence Collection",
+                                    "Validation",
+                                    "Approval",
+                                    "Argos Design",
+                                    "Next Steps",
+                                  ],
+                                },
+
+                                required: {
+                                  type: "boolean",
+                                },
+
+                                learningId: {
+                                  type: "string",
+                                },
+                              },
+
+                              required: [
+                                "text",
+                                "category",
+                                "required",
+                              ],
+
+                              additionalProperties:
+                                false,
+                            },
+                          },
+
+                          markIrrelevantTaskTexts:
+                            {
+                              type: "array",
+                              items: {
+                                type: "string",
+                              },
+                            },
+
+                          changeLogEntries: {
+                            type: "array",
+
+                            items: {
+                              type: "object",
+
+                              properties: {
+                                changeType: {
+                                  type: "string",
+
+                                  enum: [
+                                    "ADDED",
+                                    "MARKED_IRRELEVANT",
+                                  ],
+                                },
+
+                                taskText: {
+                                  type: "string",
+                                },
+
+                                reason: {
+                                  type: "string",
+                                },
+                              },
+
+                              required: [
+                                "changeType",
+                                "taskText",
+                                "reason",
+                              ],
+
+                              additionalProperties:
+                                false,
+                            },
+                          },
+
+                          progressSummary: {
+                            type: "string",
+                          },
+
+                          qaScore: {
+                            type: "string",
+
+                            enum: [
+                              "Not Started",
+                              "Surface Level",
+                              "Developing",
+                              "Well Researched",
+                              "Argos Ready",
+                            ],
+                          },
+
+                          qaScoreRationale: {
+                            type: "string",
+                          },
+                        },
+
+                        required: [
+                          "control",
+                          "taskNotes",
+                        ],
+
+                        additionalProperties:
+                          false,
+                      },
+                    },
+
+                    unmatchedNotes: {
+                      type: "array",
+                      items: {
+                        type: "string",
+                      },
+                    },
                   },
 
                   additionalProperties:
@@ -1908,6 +2388,12 @@ ${message}
         },
       });
 
+    if (response.stop_reason === "max_tokens") {
+      throw new Error(
+        "The assistant's response was too large and got cut off before finishing (this can happen when regenerating checklists for every control on an application at once). Nothing was changed. Try regenerating one control at a time, or ask again."
+      );
+    }
+
     const toolCall =
       response.content.find(
         (block) =>
@@ -1925,8 +2411,19 @@ ${message}
       );
     }
 
-    const rawCommand =
+    const parsedCommand =
       toolCall.input as ClaudeCommandInput;
+
+    // Claude's tool call is schema-hinted, not schema-enforced -- it
+    // can omit `payload` entirely even though the schema marks it
+    // required. Every switch case below reads rawCommand.payload.xxx
+    // directly, so an undefined payload would throw before any `??`
+    // fallback on the read even runs. Default it to an empty object
+    // here once, rather than in every case.
+    const rawCommand: ClaudeCommandInput = {
+      action: parsedCommand.action,
+      payload: parsedCommand.payload ?? {},
+    };
 
     let command: Command;
 
@@ -1978,6 +2475,9 @@ ${message}
             application:
               rawCommand.payload
                 .application ?? "",
+
+            hosting:
+              rawCommand.payload.hosting,
 
             context:
               rawCommand.payload.context ??
@@ -2467,6 +2967,192 @@ ${message}
             "EXPORT_PROGRESS_REPORT",
 
           payload: {
+            message:
+              rawCommand.payload.message,
+          },
+        };
+
+        break;
+      }
+
+      case "EXPORT_MEETING_PREP_EMAIL": {
+        const rawEmail =
+          rawCommand.payload.email;
+
+        const email: MeetingPrepEmail = {
+          subject: isNonEmptyString(
+            rawEmail?.subject
+          )
+            ? rawEmail!.subject
+            : "Quick prep before our meeting",
+
+          applicationSummary: String(
+            rawEmail?.applicationSummary ?? ""
+          ).trim(),
+
+          applicationUse: String(
+            rawEmail?.applicationUse ?? ""
+          ).trim(),
+
+          checklistHighlights: Array.isArray(
+            rawEmail?.checklistHighlights
+          )
+            ? rawEmail!.checklistHighlights.filter(
+                isNonEmptyString
+              )
+            : [],
+
+          openQuestions: Array.isArray(
+            rawEmail?.openQuestions
+          )
+            ? rawEmail!.openQuestions
+                .filter(
+                  (item) =>
+                    item &&
+                    isNonEmptyString(
+                      item.question
+                    )
+                )
+                .map((item) => ({
+                  question: item.question,
+                  exampleAnswer: String(
+                    item.exampleAnswer ?? ""
+                  ).trim(),
+                  relatedControls:
+                    Array.isArray(
+                      item.relatedControls
+                    )
+                      ? item.relatedControls.filter(
+                          isNonEmptyString
+                        )
+                      : [],
+                }))
+            : [],
+
+          closingNote: String(
+            rawEmail?.closingNote ?? ""
+          ).trim(),
+        };
+
+        command = {
+          action:
+            "EXPORT_MEETING_PREP_EMAIL",
+
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+
+            email,
+
+            message:
+              rawCommand.payload.message,
+          },
+        };
+
+        break;
+      }
+
+      case "PROCESS_MEETING_RESPONSE": {
+        const controlUpdates: MeetingResponseControlUpdate[] =
+          (
+            rawCommand.payload
+              .controlUpdates ?? []
+          )
+            .filter((update) =>
+              isNonEmptyString(update?.control)
+            )
+            .map((update) => ({
+              control: update.control,
+
+              taskNotes: Array.isArray(
+                update.taskNotes
+              )
+                ? update.taskNotes
+                    .filter(
+                      (item) =>
+                        item &&
+                        isNonEmptyString(
+                          item.taskText
+                        ) &&
+                        isNonEmptyString(
+                          item.note
+                        )
+                    )
+                    .map((item) => ({
+                      taskText: item.taskText,
+                      note: item.note,
+                    }))
+                : [],
+
+              addTasks: sanitizeTaskInputs(
+                update.addTasks
+              ),
+
+              markIrrelevantTaskTexts:
+                Array.isArray(
+                  update.markIrrelevantTaskTexts
+                )
+                  ? update.markIrrelevantTaskTexts.filter(
+                      isNonEmptyString
+                    )
+                  : undefined,
+
+              changeLogEntries:
+                Array.isArray(
+                  update.changeLogEntries
+                )
+                  ? update.changeLogEntries.filter(
+                      (entry) =>
+                        entry &&
+                        isNonEmptyString(
+                          entry.taskText
+                        ) &&
+                        isNonEmptyString(
+                          entry.reason
+                        ) &&
+                        (entry.changeType ===
+                          "ADDED" ||
+                          entry.changeType ===
+                            "MARKED_IRRELEVANT")
+                    )
+                  : undefined,
+
+              progressSummary:
+                update.progressSummary,
+
+              qaScore: update.qaScore,
+
+              qaScoreRationale:
+                update.qaScoreRationale,
+            }));
+
+        command = {
+          action:
+            "PROCESS_MEETING_RESPONSE",
+
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+
+            hosting:
+              rawCommand.payload.hosting,
+
+            context:
+              rawCommand.payload.context,
+
+            controlUpdates,
+
+            unmatchedNotes: Array.isArray(
+              rawCommand.payload
+                .unmatchedNotes
+            )
+              ? rawCommand.payload.unmatchedNotes.filter(
+                  isNonEmptyString
+                )
+              : undefined,
+
             message:
               rawCommand.payload.message,
           },

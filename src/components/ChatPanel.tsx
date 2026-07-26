@@ -7,10 +7,25 @@ import {
   useState,
 } from "react";
 
+import type { MeetingPrepEmail } from "@/services/commandEngine";
+
+export type ChatMessageAttachment = {
+  type: "meeting-prep-email";
+  applicationName: string;
+  subject: string;
+  // Plain-text fallback shown only when `email` is missing (older
+  // persisted messages that predate this structured preview).
+  body: string;
+  // Optional because this is loaded from persisted state -- older
+  // saved messages (or any future shape drift) may not have it.
+  email?: MeetingPrepEmail;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachment?: ChatMessageAttachment;
 };
 
 type ChatPanelProps = {
@@ -20,6 +35,225 @@ type ChatPanelProps = {
   ) => void | Promise<void>;
   assistantMessage?: string;
 };
+
+function MeetingPrepEmailAttachment({
+  attachment,
+}: {
+  attachment: ChatMessageAttachment;
+}) {
+  const { email } = attachment;
+
+  const contentRef =
+    useRef<HTMLDivElement | null>(null);
+
+  const [copyStatus, setCopyStatus] = useState<
+    "idle" | "copied" | "error"
+  >("idle");
+
+  // Selects the rendered preview and copies it the same way a manual
+  // drag-select + Ctrl/Cmd+C would -- the browser inlines the actual
+  // computed styles (table borders, spacing, etc.) into the clipboard
+  // HTML during a real selection copy, which a hand-built HTML string
+  // written via the Clipboard API does not get for free.
+  function handleCopyRenderedContent() {
+    const node = contentRef.current;
+    const selection = window.getSelection();
+
+    if (!node || !selection) {
+      setCopyStatus("error");
+      setTimeout(
+        () => setCopyStatus("idle"),
+        2500
+      );
+      return;
+    }
+
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    let succeeded = false;
+
+    try {
+      succeeded = document.execCommand(
+        "copy"
+      );
+    } catch {
+      succeeded = false;
+    }
+
+    selection.removeAllRanges();
+
+    setCopyStatus(
+      succeeded ? "copied" : "error"
+    );
+
+    setTimeout(
+      () => setCopyStatus("idle"),
+      2500
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
+      <div className="relative">
+        <div
+          ref={contentRef}
+          className="space-y-3 pr-14 pb-2"
+        >
+          {!email ? (
+            // Older persisted messages saved before this structured
+            // preview existed only carry the flattened subject/body
+            // -- fall back to plain text instead of crashing on a
+            // missing field.
+            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">
+              {attachment.body}
+            </p>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-white">
+                {email.subject}
+              </p>
+
+              {email.applicationSummary ? (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    What this application is
+                  </p>
+                  <p className="mt-1 text-sm leading-6">
+                    {email.applicationSummary}
+                  </p>
+                </div>
+              ) : null}
+
+              {email.applicationUse ? (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    How it&apos;s used
+                  </p>
+                  <p className="mt-1 text-sm leading-6">
+                    {email.applicationUse}
+                  </p>
+                </div>
+              ) : null}
+
+              {email.checklistHighlights
+                .length > 0 ? (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Where things stand
+                  </p>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-sm leading-6">
+                    {email.checklistHighlights.map(
+                      (highlight, index) => (
+                        <li key={index}>
+                          {highlight}
+                        </li>
+                      )
+                    )}
+                  </ul>
+                </div>
+              ) : null}
+
+              {email.openQuestions.length >
+              0 ? (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Questions for the
+                    application team
+                  </p>
+
+                  <div className="mt-1 overflow-x-auto rounded-lg border border-slate-700">
+                    <table className="w-full min-w-[620px] border-collapse text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-950/60 text-[10px] uppercase tracking-wide text-slate-400">
+                          <th className="border-b border-slate-700 px-2 py-1.5 font-semibold">
+                            #
+                          </th>
+                          <th className="border-b border-slate-700 px-2 py-1.5 font-semibold">
+                            Control(s)
+                          </th>
+                          <th className="border-b border-slate-700 px-2 py-1.5 font-semibold">
+                            Question
+                          </th>
+                          <th className="border-b border-slate-700 px-2 py-1.5 font-semibold">
+                            Example Answer
+                          </th>
+                          <th className="border-b border-slate-700 px-2 py-1.5 font-semibold">
+                            Your Response
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {email.openQuestions.map(
+                          (
+                            question,
+                            index
+                          ) => (
+                            <tr
+                              key={index}
+                              className="align-top odd:bg-slate-900/40"
+                            >
+                              <td className="border-b border-slate-800 px-2 py-1.5 text-slate-500">
+                                {index + 1}
+                              </td>
+                              <td className="border-b border-slate-800 px-2 py-1.5 text-slate-400">
+                                {(
+                                  question.relatedControls ??
+                                  []
+                                ).join(", ") ||
+                                  "—"}
+                              </td>
+                              <td className="border-b border-slate-800 px-2 py-1.5">
+                                {
+                                  question.question
+                                }
+                              </td>
+                              <td className="border-b border-slate-800 px-2 py-1.5 italic text-slate-400">
+                                {
+                                  question.exampleAnswer
+                                }
+                              </td>
+                              <td className="min-w-[100px] border-b border-slate-800 px-2 py-1.5">
+                                {" "}
+                              </td>
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
+
+              {email.closingNote ? (
+                <p className="text-sm italic text-slate-400">
+                  {email.closingNote}
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={
+            handleCopyRenderedContent
+          }
+          title="Copy the formatted preview above (including the table) to paste into an email"
+          className="absolute bottom-0 right-0 rounded-md border border-slate-600 bg-slate-950/90 px-2 py-1 text-[10px] font-medium text-slate-300 hover:bg-slate-700"
+        >
+          {copyStatus === "copied"
+            ? "Copied!"
+            : copyStatus === "error"
+              ? "Copy failed"
+              : "Copy"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function ChatPanel({
   messages,
@@ -113,6 +347,15 @@ export default function ChatPanel({
                 <p className="whitespace-pre-wrap break-words leading-6">
                   {message.content}
                 </p>
+
+                {message.attachment?.type ===
+                "meeting-prep-email" ? (
+                  <MeetingPrepEmailAttachment
+                    attachment={
+                      message.attachment
+                    }
+                  />
+                ) : null}
               </div>
             );
           })
