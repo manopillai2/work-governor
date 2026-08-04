@@ -43,6 +43,9 @@ export async function GET() {
       applicabilityRationale: row.applicabilityRationale,
       evidenceStrategy: row.evidenceStrategy,
       argosObjective: row.argosObjective,
+      globalControlReference: row.globalControlReference,
+      clientContext: row.clientContext,
+      evidenceDataGapAnalysis: row.evidenceDataGapAnalysis,
       notes: row.notes,
       nextTasks: row.nextTasks,
       checklistChangeLog: row.checklistChangeLog,
@@ -74,6 +77,7 @@ export async function GET() {
       financialRelevance: row.financialRelevance,
       contextStatus:
         row.contextStatus as Application["contextStatus"],
+      evidenceDataGapSummary: row.evidenceDataGapSummary,
       notes: row.notes,
       controls: controlsByApplication.get(row.id) ?? [],
     }));
@@ -115,6 +119,8 @@ export async function PUT(request: Request) {
           dataClassification: application.dataClassification,
           financialRelevance: application.financialRelevance,
           contextStatus: application.contextStatus,
+          evidenceDataGapSummary:
+            application.evidenceDataGapSummary,
           notes: application.notes,
         }))
       );
@@ -136,6 +142,11 @@ export async function PUT(request: Request) {
               control.applicabilityRationale,
             evidenceStrategy: control.evidenceStrategy,
             argosObjective: control.argosObjective,
+            globalControlReference:
+              control.globalControlReference,
+            clientContext: control.clientContext,
+            evidenceDataGapAnalysis:
+              control.evidenceDataGapAnalysis,
             notes: control.notes,
             nextTasks: control.nextTasks,
             checklistChangeLog: control.checklistChangeLog,

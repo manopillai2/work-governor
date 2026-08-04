@@ -351,6 +351,14 @@ export default function GuidePage() {
             Argos monitoring.
           </p>
 
+          <p className="mt-3 max-w-2xl text-base leading-7 text-blue-50">
+            It now also ingests the underlying evidence and real
+            application data behind every control, tracks the two
+            separately with full attribution, and actively surfaces where
+            they diverge -- driving the shift from screenshot-style
+            evidence to authoritative, system-generated data.
+          </p>
+
           <p className="mt-4 text-xs font-medium text-blue-200">
             Developed by Manoj &middot; Workspace: CORE &middot; Framework:
             SOX / PCI DSS
@@ -410,7 +418,11 @@ export default function GuidePage() {
               <ArrowRight />
               <FlowBox
                 title="Postgres (core)"
-                lines={["applications, controls,", "chat_messages, backups"]}
+                lines={[
+                  "applications, controls,",
+                  "chat_messages, backups,",
+                  "evidence_documents",
+                ]}
                 tone="slate"
                 icon={<IconDatabase />}
               />
@@ -441,7 +453,10 @@ export default function GuidePage() {
               <ArrowRight />
               <FlowBox
                 title="Postgres (learning)"
-                lines={["learnings, learning_notes"]}
+                lines={[
+                  "learnings, learning_notes,",
+                  "client_reference_learnings",
+                ]}
                 tone="slate"
                 icon={<IconDatabase />}
               />
@@ -641,7 +656,12 @@ export default function GuidePage() {
             <FunctionCard
               tone="amber"
               title="Meeting-prep email export"
-              description="Drafts a plain-language email for the application team ahead of a compliance meeting -- what's known, plus a ranked, deduplicated list of open questions grouped by topic with example answers."
+              description="Drafts a plain-language email for the application team ahead of a compliance meeting -- what's known, plus a ranked, deduplicated list of open questions grouped by topic with example answers. Available per control and per application, as a chat command or a one-click button."
+            />
+            <FunctionCard
+              tone="amber"
+              title="Open questions view"
+              description="The same underlying question set as the prep email, shown as a plain numbered list (no table) with a copy button -- for pasting straight into an email or ticket."
             />
             <FunctionCard
               tone="amber"
@@ -656,7 +676,7 @@ export default function GuidePage() {
             <FunctionCard
               tone="rose"
               title="Learning Engine"
-              description="Captures notable checklist changes as candidate learnings scoped by framework and hosting; once accepted, it's checked against every future checklist generation across all applications."
+              description="Captures notable checklist changes as candidate learnings scoped by framework and hosting, and candidate Client Control Reference codes spotted in conversation -- both held for human approval before they're checked against any future checklist generation or applied to a control."
             />
             <FunctionCard
               tone="indigo"
@@ -667,6 +687,26 @@ export default function GuidePage() {
               tone="indigo"
               title="Control workflow stage"
               description="Tracks each control through Homework, Discovery, Evidence Collection, Testing, Review, and Completed."
+            />
+            <FunctionCard
+              tone="cyan"
+              title="Client Control Reference codes"
+              description="Maps each control to a fixed internal code table (e.g. IS02 - User provisioning). New codes mentioned in conversation are proposed, never assumed, and only take effect once approved through the Learning Engine."
+            />
+            <FunctionCard
+              tone="emerald"
+              title="Evidence & data attachments"
+              description="Attach evidence documents (workpapers, policies, screenshots) or real application data (exports, configs) from the chat -- multiple files at once, any of docx/pptx/xlsx/pdf/csv/json/txt/md, no size limit. Full text is stored for future Q&A, and every note it produces is tagged with its source kind, filename, and a unique note ID."
+            />
+            <FunctionCard
+              tone="emerald"
+              title="Attachments manager"
+              description="Per application: every uploaded file with its document ID, kind, upload date, and the note IDs it produced, filterable by Evidence / Data / All. Deleting a file strikes through the notes it produced instead of removing them, and flags the affected control for manual checklist regeneration."
+            />
+            <FunctionCard
+              tone="emerald"
+              title="Evidence vs. Data Gap Analysis"
+              description="Per control: a structured breakdown of what each evidence document and data file claims, where they agree or contradict, and specifically what real data is still missing to independently back up each piece of evidence -- the throughline toward retiring screenshot-style evidence. A high-level version rolls up at the application level. Refreshes automatically after an upload, or on demand."
             />
           </div>
         </section>
@@ -720,11 +760,15 @@ export default function GuidePage() {
                 {[
                   [
                     "applications",
-                    "One row per application: identity, hosting, context fields, notes, and context-completeness status.",
+                    "One row per application: identity, hosting, context fields, notes, evidence-vs-data summary, and context-completeness status.",
                   ],
                   [
                     "controls",
-                    "One row per control on an application: framework, statuses, objective/risk/evidence fields, checklist, change log, progress summary, and QA score.",
+                    "One row per control on an application: framework, statuses, objective/risk/evidence fields, evidence-vs-data gap analysis, checklist, change log, progress summary, and QA score.",
+                  ],
+                  [
+                    "evidence_documents",
+                    "One row per uploaded evidence or data file: application, filename, kind (evidence/data), extracted text, and upload metadata. Notes reference these by ID to know which document they came from.",
                   ],
                   [
                     "chat_messages",
@@ -736,11 +780,15 @@ export default function GuidePage() {
                   ],
                   [
                     "learnings",
-                    "Candidate and accepted learnings: content, suggested checklist item and category, framework/hosting scope, and the source change that produced them.",
+                    "Candidate and accepted checklist-change learnings: content, suggested checklist item and category, framework/hosting scope, and the source change that produced them.",
                   ],
                   [
                     "learning_notes",
                     "Free-form notes attached to a learning during human review.",
+                  ],
+                  [
+                    "client_reference_learnings",
+                    "Candidate Client Control Reference codes spotted in conversation, held for human approval before they're usable.",
                   ],
                 ].map(([table, purpose], index) => (
                   <tr

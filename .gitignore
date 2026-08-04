@@ -37,6 +37,9 @@ yarn-error.log*
 # local database backups
 /backups/
 
+# uploaded evidence documents (stored on disk, referenced from the DB)
+/uploads/
+
 # docker env files (real credentials; .example files are tracked)
 docker/**/.env.docker
 !docker/**/.env.docker.example

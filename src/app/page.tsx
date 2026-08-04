@@ -6,14 +6,21 @@ import {
   useState,
 } from "react";
 
+import AdminConfirmModal from "@/components/AdminConfirmModal";
 import ApplicationCard from "@/components/ApplicationCard";
 import ChatPanel, {
   type ChatMessage,
 } from "@/components/ChatPanel";
 import ControlCard from "@/components/ControlCard";
+import AttachmentManagerModal from "@/components/AttachmentManagerModal";
+import EvidenceUploadModal, {
+  type EvidenceKind,
+  type EvidenceUploadResult,
+} from "@/components/EvidenceUploadModal";
 import FilterBar from "@/components/FilterBar";
 import Header from "@/components/layout/Header";
 import LearningNotifications, {
+  type PendingClientReferenceLearning,
   type PendingLearning,
 } from "@/components/LearningNotifications";
 
@@ -34,6 +41,7 @@ import {
   type ChecklistTask,
   type Command,
   type ComplianceControl,
+  type NoteSource,
 } from "@/services/commandEngine";
 import {
   EMPTY_APPLICATION_FILTERS,
@@ -41,6 +49,7 @@ import {
   type ApplicationFilterState,
 } from "@/services/applicationFilters";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
+import { formatClientReferenceEntry } from "@/services/clientReference";
 import { formatMeetingPrepEmailText } from "@/services/meetingPrepEmail";
 import {
   createAndSaveBackup,
@@ -84,6 +93,87 @@ function describePrivilegedAction(
   }
 }
 
+// The exact text the AdminConfirmModal requires the user to type,
+// matching what commandEngine.ts's own confirmation messages ask for
+// (kept here too since confirmation is now decided entirely client
+// side in a single modal, before any second round trip).
+function computeRequiredPhrase(
+  command: Command
+): string {
+  switch (command.action) {
+    case "DELETE_APPLICATION":
+      return `yes, delete ${command.payload.application}`;
+    case "DELETE_ALL_APPLICATIONS":
+      return "yes, delete all applications";
+    case "ROLLBACK_BACKUP":
+      return `yes, rollback to backup ${command.payload.version}`;
+    case "CLEAR_CHAT_HISTORY":
+      return "yes, clear chat history";
+    default:
+      return "yes, continue";
+  }
+}
+
+// Marks a privileged command as pre-confirmed once the single
+// AdminConfirmModal round trip has already verified the password and
+// the typed confirmation phrase, so the normal execution path below
+// (which still checks payload.confirmed for these three actions)
+// proceeds immediately instead of asking again.
+function withConfirmed(command: Command): Command {
+  switch (command.action) {
+    case "DELETE_APPLICATION":
+      return {
+        ...command,
+        payload: {
+          ...command.payload,
+          confirmed: true,
+        },
+      };
+    case "DELETE_ALL_APPLICATIONS":
+      return {
+        ...command,
+        payload: {
+          ...command.payload,
+          confirmed: true,
+        },
+      };
+    case "ROLLBACK_BACKUP":
+      return {
+        ...command,
+        payload: {
+          ...command.payload,
+          confirmed: true,
+        },
+      };
+    default:
+      return command;
+  }
+}
+
+const PROCESSING_SUMMARY_MAX_LENGTH = 90;
+
+// A short, honest echo of what the user actually asked for, shown
+// while a request is in flight -- not a guess at which action Claude
+// will pick (that isn't known yet), just their own words condensed.
+function summarizeForProgress(
+  message: string
+): string {
+  const collapsed = message
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (
+    collapsed.length <=
+    PROCESSING_SUMMARY_MAX_LENGTH
+  ) {
+    return collapsed;
+  }
+
+  return `${collapsed
+    .slice(0, PROCESSING_SUMMARY_MAX_LENGTH)
+    .trimEnd()}…`;
+}
+
 type AssistantApiResponse = {
   command?: Command;
   assistantMessage?: string;
@@ -108,6 +198,27 @@ function createMessage(
     content,
     attachment,
   };
+}
+
+// Defense in depth: no chat message is expected to be this long since
+// evidence/data uploads use a short display message (see
+// handleEvidenceUploaded), but this guarantees history sent on any
+// future turn can never itself blow the assistant's prompt token
+// budget, regardless of what produced an oversized message.
+const HISTORY_ITEM_CHAR_CAP = 4000;
+
+function truncateForHistory(content: string): string {
+  if (content.length <= HISTORY_ITEM_CHAR_CAP) {
+    return content;
+  }
+
+  const omitted =
+    content.length - HISTORY_ITEM_CHAR_CAP;
+
+  return `${content.slice(
+    0,
+    HISTORY_ITEM_CHAR_CAP
+  )}\n\n[...truncated, ${omitted} more characters omitted...]`;
 }
 
 function createTaskFromStoredValue(
@@ -227,6 +338,9 @@ function normalizeStoredControl(
     argosObjective:
       control.argosObjective || "",
 
+    evidenceDataGapAnalysis:
+      control.evidenceDataGapAnalysis || "",
+
     notes: Array.isArray(control.notes)
       ? control.notes
       : [],
@@ -295,6 +409,9 @@ function normalizeStoredApplication(
     contextStatus:
       application.contextStatus || "Missing",
 
+    evidenceDataGapSummary:
+      application.evidenceDataGapSummary || "",
+
     notes: Array.isArray(application.notes)
       ? application.notes
       : [],
@@ -351,6 +468,11 @@ export default function Home() {
   const [isProcessing, setIsProcessing] =
     useState(false);
 
+  const [
+    processingSummary,
+    setProcessingSummary,
+  ] = useState("");
+
   const [isLoaded, setIsLoaded] =
     useState(false);
 
@@ -382,6 +504,32 @@ export default function Home() {
   const [pendingLearnings, setPendingLearnings] =
     useState<PendingLearning[]>([]);
 
+  const [
+    pendingClientReferenceLearnings,
+    setPendingClientReferenceLearnings,
+  ] = useState<
+    PendingClientReferenceLearning[]
+  >([]);
+
+  const [
+    pendingAdminConfirmation,
+    setPendingAdminConfirmation,
+  ] = useState<{
+    description: string;
+    requiredPhrase: string;
+    resolve: (confirmed: boolean) => void;
+  } | null>(null);
+
+  const [
+    evidenceModalKind,
+    setEvidenceModalKind,
+  ] = useState<EvidenceKind | null>(null);
+
+  const [
+    attachmentManagerApplicationId,
+    setAttachmentManagerApplicationId,
+  ] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadPendingLearnings() {
       try {
@@ -406,10 +554,37 @@ export default function Home() {
       }
     }
 
+    async function loadPendingClientReferenceLearnings() {
+      try {
+        const response = await fetch(
+          "/api/learnings/client-context/pending"
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+
+        if (Array.isArray(data.learnings)) {
+          setPendingClientReferenceLearnings(
+            data.learnings
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Unable to load pending client reference learnings:",
+          error
+        );
+      }
+    }
+
     loadPendingLearnings();
+    loadPendingClientReferenceLearnings();
 
     function handleFocus() {
       loadPendingLearnings();
+      loadPendingClientReferenceLearnings();
     }
 
     window.addEventListener(
@@ -451,6 +626,70 @@ export default function Home() {
     } catch (error) {
       console.error(
         "Unable to respond to learning:",
+        error
+      );
+    }
+  }
+
+  async function handleClientReferenceLearningRespond(
+    id: string,
+    status: "accepted" | "rejected"
+  ) {
+    const learning =
+      pendingClientReferenceLearnings.find(
+        (current) => current.id === id
+      );
+
+    setPendingClientReferenceLearnings(
+      (current) =>
+        current.filter(
+          (current) => current.id !== id
+        )
+    );
+
+    try {
+      const response = await fetch(
+        `/api/learnings/client-context/${id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status }),
+        }
+      );
+
+      if (
+        response.ok &&
+        status === "accepted" &&
+        learning
+      ) {
+        // The client holds the authoritative
+        // application/control state and
+        // auto-saves it, so the backfill has to
+        // happen here, not just server side.
+        // Only fill in a control whose
+        // clientContext is still blank -- never
+        // overwrite something already set.
+        updateControl(
+          learning.sourceApplicationId,
+          learning.sourceControlId,
+          (control) =>
+            control.clientContext
+              ? control
+              : {
+                  ...control,
+                  clientContext:
+                    formatClientReferenceEntry({
+                      code: learning.code,
+                      title: learning.title,
+                    }),
+                }
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Unable to respond to client reference learning:",
         error
       );
     }
@@ -844,6 +1083,26 @@ export default function Home() {
     );
   }
 
+  // Regenerating every control in one GENERATE_CONTEXTUAL_CHECKLISTS
+  // call asks the model to produce a full checklist (objective, risk,
+  // rationale, evidence strategy, argos objective, tasks) for every
+  // control in a single response -- on an application with several
+  // controls that reliably blows the model's max output tokens and
+  // gets cut off mid-JSON. Looping REGENERATE_CONTROL_CHECKLIST one
+  // control at a time (the same reliable path the per-control
+  // hamburger menu action already uses) produces the exact same
+  // result per control without that ceiling, at the cost of a visible
+  // per-control message in chat instead of one combined summary.
+  async function regenerateAllChecklistsHandler(
+    application: Application
+  ) {
+    for (const control of application.controls) {
+      await handleSend(
+        `Regenerate the contextual checklist for control "${control.name}" on application "${application.id}".`
+      );
+    }
+  }
+
   async function analyzeChecklistChange(
     application: Application,
     control: ComplianceControl,
@@ -896,10 +1155,144 @@ export default function Home() {
     }
   }
 
+  async function proposeClientReferenceLearning(
+    application: Application,
+    control: ComplianceControl,
+    proposed: {
+      code: string;
+      title: string;
+      sourceQuote: string;
+    }
+  ) {
+    try {
+      const response = await fetch(
+        "/api/learnings/client-context",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            code: proposed.code,
+            title: proposed.title,
+            sourceQuote: proposed.sourceQuote,
+            sourceApplicationId: application.id,
+            sourceControlId: control.id,
+            sourceControlName: control.name,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.learning) {
+        setPendingClientReferenceLearnings(
+          (current) => [
+            ...current,
+            data.learning,
+          ]
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Unable to propose client reference learning:",
+        error
+      );
+    }
+  }
+
   async function triggerLearningAnalysis(
     command: Command,
     resultApplications: Application[]
   ) {
+    if (
+      command.action === "CREATE_APPLICATION"
+    ) {
+      const controlsWithProposals =
+        command.payload.controls.filter(
+          (controlInput) =>
+            controlInput.proposedClientReference
+        );
+
+      if (
+        controlsWithProposals.length === 0
+      ) {
+        return;
+      }
+
+      const targetApplication =
+        resultApplications.find((application) =>
+          command.payload.controls.every(
+            (controlInput) =>
+              application.controls.some(
+                (existing) =>
+                  existing.name ===
+                  controlInput.name
+              )
+          )
+        );
+
+      if (!targetApplication) {
+        return;
+      }
+
+      for (const controlInput of controlsWithProposals) {
+        const control = findControl(
+          targetApplication.controls,
+          controlInput.name
+        );
+
+        if (
+          !control ||
+          !controlInput.proposedClientReference
+        ) {
+          continue;
+        }
+
+        await proposeClientReferenceLearning(
+          targetApplication,
+          control,
+          controlInput.proposedClientReference
+        );
+      }
+
+      return;
+    }
+
+    if (command.action === "ADD_CONTROL") {
+      if (!command.payload.proposedClientReference) {
+        return;
+      }
+
+      const application = findApplication(
+        resultApplications,
+        command.payload.application
+      );
+
+      const control = application
+        ? findControl(
+            application.controls,
+            command.payload.control
+          )
+        : undefined;
+
+      if (!application || !control) {
+        return;
+      }
+
+      await proposeClientReferenceLearning(
+        application,
+        control,
+        command.payload.proposedClientReference
+      );
+
+      return;
+    }
+
     if (command.action === "UPDATE_TASK_NOTES") {
       if (
         !command.payload.changeLogEntries ||
@@ -973,8 +1366,208 @@ export default function Home() {
     }
   }
 
+  function handleEvidenceUploaded(
+    result: EvidenceUploadResult
+  ) {
+    // The modal closes itself (immediately if every file uploaded, or
+    // after the user acknowledges a skipped-file summary) -- see
+    // EvidenceUploadModal's onClose call in handleSubmit.
+
+    // Per-document text is already capped at MAX_STORED_TEXT_LENGTH
+    // (300,000 chars) for storage, but that alone is enough to blow the
+    // 200k-token prompt budget once combined with a few files in one
+    // batch. Cap what actually goes into this turn's AI message: each
+    // document gets truncated to a smaller processing cap, and the
+    // combined block is capped further still -- mirroring how
+    // formatEvidenceArchive() budgets stored evidence in route.ts. The
+    // full text is untouched in storage either way, so nothing here
+    // affects what's retrievable for future Q&A.
+    const PER_DOCUMENT_PROCESSING_CHAR_CAP = 100_000;
+    const COMBINED_PROCESSING_CHAR_BUDGET = 300_000;
+
+    let remainingBudget =
+      COMBINED_PROCESSING_CHAR_BUDGET;
+    const truncatedFilenames: string[] = [];
+    const skippedFilenames: string[] = [];
+
+    const documentsBlock = result.documents
+      .map((document) => {
+        if (remainingBudget <= 0) {
+          skippedFilenames.push(
+            document.filename
+          );
+          return null;
+        }
+
+        const cap = Math.min(
+          PER_DOCUMENT_PROCESSING_CHAR_CAP,
+          remainingBudget
+        );
+
+        const wasTruncated =
+          document.extractedText.length > cap;
+
+        const text = wasTruncated
+          ? document.extractedText.slice(0, cap)
+          : document.extractedText;
+
+        remainingBudget -= text.length;
+
+        if (wasTruncated) {
+          truncatedFilenames.push(
+            document.filename
+          );
+        }
+
+        return `--- Document: "${document.filename}"${wasTruncated ? " (truncated for this pass -- full text remains stored for future Q&A)" : ""} ---\n${text}`;
+      })
+      .filter(
+        (entry): entry is string =>
+          entry !== null
+      )
+      .join("\n\n");
+
+    const scopeInstruction =
+      result.scope === "selected"
+        ? `for control "${result.controlName}" only`
+        : "for the controls that are necessary";
+
+    const sourceDescription =
+      result.kind === "evidence"
+        ? "evidence document(s)"
+        : "real application data file(s)";
+
+    const budgetCaveat =
+      truncatedFilenames.length > 0 ||
+      skippedFilenames.length > 0
+        ? ` Note: ${[
+            truncatedFilenames.length > 0
+              ? `${truncatedFilenames.join(", ")} ${truncatedFilenames.length === 1 ? "was" : "were"} only partially read this pass`
+              : null,
+            skippedFilenames.length > 0
+              ? `${skippedFilenames.join(", ")} ${skippedFilenames.length === 1 ? "was" : "were"} not read at all this pass`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(
+              "; "
+            )} due to size -- say so explicitly in any note or summary you write about them rather than treating them as fully covered.`
+        : "";
+
+    // Deliberately phrased as an application team reply (rather than
+    // a single "update the notes" instruction) so this always routes
+    // through PROCESS_MEETING_RESPONSE's per-item matching, even when
+    // the attached document is short or single-topic -- more robust
+    // than UPDATE_TASK_NOTES for arbitrary extracted document text.
+    // This is sent to the AI for THIS turn only -- it is never stored
+    // in chat history (see displayMessage below), since document text
+    // can be hundreds of KB and would blow the prompt token budget the
+    // moment it got replayed back in on a later turn's history.
+    const aiMessage = `The application team sent over ${sourceDescription} ${scopeInstruction} on ${result.applicationId}. Treat this the same as an application team reply: read through it and match every distinct fact to the checklist item(s) it answers, ${scopeInstruction}. For every note you write, end it with a tag naming which document it came from, in this exact form: [Attachment: <filename>].${budgetCaveat}\n\n${documentsBlock}`;
+
+    const filenames = result.documents
+      .map((document) => document.filename)
+      .join(", ");
+
+    const displayMessage = `Attached ${result.documents.length} ${sourceDescription} ${scopeInstruction} on ${result.applicationId}: ${filenames}.${budgetCaveat}`;
+
+    const documentsByFilename: Record<
+      string,
+      string
+    > = {};
+
+    for (const document of result.documents) {
+      documentsByFilename[document.filename] =
+        document.id;
+    }
+
+    void handleSend(
+      displayMessage,
+      {
+        kind: result.kind,
+        documentsByFilename,
+      },
+      aiMessage
+    );
+  }
+
+  async function handleDeleteEvidence(
+    documentId: string
+  ) {
+    const response = await fetch(
+      `/api/evidence/${documentId}`,
+      { method: "DELETE" }
+    );
+
+    if (!response.ok) {
+      console.error(
+        "Unable to delete evidence document:",
+        documentId
+      );
+      return;
+    }
+
+    // The main app state is client-authoritative (auto-saved on every
+    // change), so striking the notes that came from this document has
+    // to happen here too, not just server side -- the note text stays
+    // for audit history, only documentDeleted flips.
+    setApplications((currentApplications) =>
+      currentApplications.map(
+        (application) => ({
+          ...application,
+          notes: application.notes.map(
+            (note) =>
+              note.sourceDocumentId ===
+              documentId
+                ? {
+                    ...note,
+                    documentDeleted: true,
+                  }
+                : note
+          ),
+          controls: application.controls.map(
+            (control) =>
+              refreshControlState({
+                ...control,
+                notes: control.notes.map(
+                  (note) =>
+                    note.sourceDocumentId ===
+                    documentId
+                      ? {
+                          ...note,
+                          documentDeleted:
+                            true,
+                        }
+                      : note
+                ),
+                nextTasks:
+                  control.nextTasks.map(
+                    (task) => ({
+                      ...task,
+                      notes: task.notes.map(
+                        (note) =>
+                          note.sourceDocumentId ===
+                          documentId
+                            ? {
+                                ...note,
+                                documentDeleted:
+                                  true,
+                              }
+                            : note
+                      ),
+                    })
+                  ),
+              })
+          ),
+        })
+      )
+    );
+  }
+
   async function handleSend(
-    userInput: string
+    userInput: string,
+    noteSource?: NoteSource,
+    aiMessageOverride?: string
   ) {
     const trimmedInput =
       String(userInput ?? "").trim();
@@ -985,6 +1578,15 @@ export default function Home() {
     ) {
       return;
     }
+
+    // What gets displayed and kept in chat history is always the short
+    // form (trimmedInput). aiMessageOverride, when present, is a fuller
+    // version (e.g. raw evidence/data document text) sent to the AI for
+    // this turn only -- it is never stored, so it can't get replayed
+    // back in on a future turn's history and blow the prompt token
+    // budget the way full document dumps did before this existed.
+    const messageForAi =
+      aiMessageOverride?.trim() || trimmedInput;
 
     const userMessage = createMessage(
       "user",
@@ -1002,6 +1604,9 @@ export default function Home() {
     );
 
     setIsProcessing(true);
+    setProcessingSummary(
+      summarizeForProgress(trimmedInput)
+    );
 
     try {
       const response = await fetch(
@@ -1015,7 +1620,7 @@ export default function Home() {
           },
 
           body: JSON.stringify({
-            message: trimmedInput,
+            message: messageForAi,
             applications,
 
             history:
@@ -1023,7 +1628,9 @@ export default function Home() {
                 (message) => ({
                   role: message.role,
                   content:
-                    message.content,
+                    truncateForHistory(
+                      message.content
+                    ),
                 })
               ),
           }),
@@ -1051,31 +1658,45 @@ export default function Home() {
           data.command.action
         )
       ) {
-        const enteredPassword =
-          window.prompt(
-            `Enter the root password to ${describePrivilegedAction(
-              data.command.action
-            )}:`
+        const requiredPhrase =
+          computeRequiredPhrase(
+            data.command
           );
 
-        if (
-          enteredPassword !== ROOT_PASSWORD
-        ) {
+        const confirmed =
+          await new Promise<boolean>(
+            (resolve) => {
+              setPendingAdminConfirmation({
+                description:
+                  describePrivilegedAction(
+                    data.command!.action
+                  ),
+                requiredPhrase,
+                resolve,
+              });
+            }
+          );
+
+        setPendingAdminConfirmation(null);
+
+        if (!confirmed) {
           setMessages(
             (currentMessages) => [
               ...currentMessages,
 
               createMessage(
                 "assistant",
-                enteredPassword === null
-                  ? "Root password entry was cancelled. No action was taken."
-                  : "Incorrect root password. No action was taken."
+                "Action was cancelled. No changes were made."
               ),
             ]
           );
 
           return;
         }
+
+        data.command = withConfirmed(
+          data.command
+        );
       }
 
       if (
@@ -1129,6 +1750,46 @@ export default function Home() {
 
         const emailPayload =
           data.command.payload.email;
+
+        // The "Show Questions" buttons ask for the same
+        // EXPORT_MEETING_PREP_EMAIL command as "Prep Email" but with
+        // this phrase added, so the full email still gets generated
+        // (the AI's schema requires every field) -- only the display
+        // differs, extracting just openQuestions instead of showing
+        // the whole email.
+        const wantsQuestionsOnly =
+          trimmedInput
+            .toLowerCase()
+            .includes(
+              "just the open questions"
+            );
+
+        if (wantsQuestionsOnly) {
+          const questionsMessage =
+            emailPayload.openQuestions
+              .length > 0
+              ? `Open questions for ${applicationName} are ready below.`
+              : `No open questions right now for ${applicationName}.`;
+
+          setMessages(
+            (currentMessages) => [
+              ...currentMessages,
+
+              createMessage(
+                "assistant",
+                questionsMessage,
+                {
+                  type: "open-questions",
+                  applicationName,
+                  questions:
+                    emailPayload.openQuestions,
+                }
+              ),
+            ]
+          );
+
+          return;
+        }
 
         const { subject, body } =
           formatMeetingPrepEmailText(
@@ -1309,7 +1970,8 @@ export default function Home() {
 
       const result = executeCommand(
         data.command,
-        applications
+        applications,
+        noteSource
       );
 
       setApplications(
@@ -1384,6 +2046,7 @@ export default function Home() {
       );
     } finally {
       setIsProcessing(false);
+      setProcessingSummary("");
     }
   }
 
@@ -1432,7 +2095,66 @@ export default function Home() {
       <LearningNotifications
         learnings={pendingLearnings}
         onRespond={handleLearningRespond}
+        clientReferenceLearnings={
+          pendingClientReferenceLearnings
+        }
+        onRespondClientReference={
+          handleClientReferenceLearningRespond
+        }
       />
+
+      {pendingAdminConfirmation ? (
+        <AdminConfirmModal
+          description={
+            pendingAdminConfirmation.description
+          }
+          requiredPassword={ROOT_PASSWORD}
+          requiredPhrase={
+            pendingAdminConfirmation.requiredPhrase
+          }
+          onConfirm={() =>
+            pendingAdminConfirmation.resolve(
+              true
+            )
+          }
+          onCancel={() =>
+            pendingAdminConfirmation.resolve(
+              false
+            )
+          }
+        />
+      ) : null}
+
+      {evidenceModalKind ? (
+        <EvidenceUploadModal
+          kind={evidenceModalKind}
+          applications={applications}
+          onClose={() =>
+            setEvidenceModalKind(null)
+          }
+          onUploaded={
+            handleEvidenceUploaded
+          }
+        />
+      ) : null}
+
+      {attachmentManagerApplicationId ? (
+        <AttachmentManagerModal
+          application={
+            applications.find(
+              (application) =>
+                application.id ===
+                attachmentManagerApplicationId
+            ) ?? null
+          }
+          onClose={() =>
+            setAttachmentManagerApplicationId(
+              null
+            )
+          }
+          onDelete={handleDeleteEvidence}
+        />
+      ) : null}
 
       <div className="shrink-0">
         <Header progress={progress} />
@@ -1564,6 +2286,14 @@ export default function Home() {
                         controls={
                           application.controls
                         }
+                        evidenceDataGapSummary={
+                          application.evidenceDataGapSummary
+                        }
+                        onRefreshEvidenceDataGapAnalysis={() =>
+                          handleSend(
+                            `Analyze the evidence vs real data gap for ${application.id}, across all controls.`
+                          )
+                        }
                         notes={
                           application.notes
                         }
@@ -1597,8 +2327,23 @@ export default function Home() {
                           )
                         }
                         onRegenerateAllChecklists={() =>
+                          void regenerateAllChecklistsHandler(
+                            application
+                          )
+                        }
+                        onPrepEmail={() =>
                           handleSend(
-                            `Regenerate contextual checklists for ${application.id}.`
+                            `Give me an email-ready version for ${application.id}.`
+                          )
+                        }
+                        onShowQuestions={() =>
+                          handleSend(
+                            `Give me just the open questions from an email-ready version for ${application.id}.`
+                          )
+                        }
+                        onOpenAttachments={() =>
+                          setAttachmentManagerApplicationId(
+                            application.id
                           )
                         }
                         isProcessing={isProcessing}
@@ -1616,6 +2361,12 @@ export default function Home() {
                                   key={control.id}
                                   controlName={
                                     control.name
+                                  }
+                                  globalControlReference={
+                                    control.globalControlReference
+                                  }
+                                  clientContext={
+                                    control.clientContext
                                   }
                                   framework={
                                     control.framework
@@ -1640,6 +2391,9 @@ export default function Home() {
                                   }
                                   evidenceStrategy={
                                     control.evidenceStrategy
+                                  }
+                                  evidenceDataGapAnalysis={
+                                    control.evidenceDataGapAnalysis
                                   }
                                   qaScore={
                                     control.qaScore
@@ -1697,6 +2451,21 @@ export default function Home() {
                                     regenerateChecklistHandler(
                                       application.id,
                                       control.name
+                                    )
+                                  }
+                                  onPrepEmail={() =>
+                                    handleSend(
+                                      `Give me an email-ready version for ${application.id}, for control "${control.name}" only.`
+                                    )
+                                  }
+                                  onShowQuestions={() =>
+                                    handleSend(
+                                      `Give me just the open questions from an email-ready version for ${application.id}, for control "${control.name}" only.`
+                                    )
+                                  }
+                                  onRefreshEvidenceDataGapAnalysis={() =>
+                                    handleSend(
+                                      `Analyze the evidence vs real data gap for ${application.id}, for control "${control.name}" only.`
                                     )
                                   }
                                   onApproveChecklist={() =>
@@ -1770,8 +2539,15 @@ export default function Home() {
                     onSend={handleSend}
                     assistantMessage={
                       isProcessing
-                        ? "Work Governor is analyzing the application context, SOX control risk, evidence sources, identities, and Argos objective..."
+                        ? `Working on: "${processingSummary}"`
                         : undefined
+                    }
+                    onAttachEvidence={(
+                      kind
+                    ) =>
+                      setEvidenceModalKind(
+                        kind
+                      )
                     }
                   />
                 </div>

@@ -10,6 +10,7 @@ import {
   type ApplicationFilterState,
   EMPTY_APPLICATION_FILTERS,
 } from "@/services/applicationFilters";
+import { CLIENT_REFERENCE_TABLE } from "@/services/clientReference";
 
 const FRAMEWORK_OPTIONS: Framework[] = [
   "SOX",
@@ -169,6 +170,37 @@ export default function FilterBar({
               )}
             >
               {status}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          <GroupLabel>Control</GroupLabel>
+
+          {CLIENT_REFERENCE_TABLE.map((entry) => (
+            <button
+              key={entry.code}
+              type="button"
+              title={entry.title}
+              aria-pressed={filters.clientCodes.includes(
+                entry.code
+              )}
+              onClick={() =>
+                onChange({
+                  ...filters,
+                  clientCodes: toggleValue(
+                    filters.clientCodes,
+                    entry.code
+                  ),
+                })
+              }
+              className={chipClass(
+                filters.clientCodes.includes(
+                  entry.code
+                )
+              )}
+            >
+              {entry.code}
             </button>
           ))}
         </div>

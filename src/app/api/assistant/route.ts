@@ -2,8 +2,17 @@ import Anthropic from "@anthropic-ai/sdk";
 import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+import { db } from "@/db/client";
 import { learningDb } from "@/db/learning-client";
-import { learnings } from "@/db/learning-schema";
+import {
+  clientReferenceLearnings,
+  learnings,
+} from "@/db/learning-schema";
+import { evidenceDocuments } from "@/db/schema";
+import {
+  CLIENT_REFERENCE_TABLE,
+  formatClientReferenceEntry,
+} from "@/services/clientReference";
 import type {
   Application,
   ApplicationContextInput,
@@ -17,7 +26,9 @@ import type {
   HomeworkStatus,
   MeetingPrepEmail,
   MeetingResponseControlUpdate,
+  Note,
   NoteMode,
+  ProposedClientReference,
   QaScoreLevel,
   WorkflowStage,
 } from "@/services/commandEngine";
@@ -64,6 +75,7 @@ type ClaudeCommandInput = {
     | "EXPORT_PROGRESS_REPORT"
     | "EXPORT_MEETING_PREP_EMAIL"
     | "PROCESS_MEETING_RESPONSE"
+    | "UPDATE_EVIDENCE_DATA_GAP_ANALYSIS"
     | "BACKUP_APPLICATION_DATA"
     | "LIST_BACKUPS"
     | "ROLLBACK_BACKUP"
@@ -80,6 +92,9 @@ type ClaudeCommandInput = {
     controls?: Array<{
       name: string;
       framework: Framework;
+      globalControlReference?: string;
+      clientContext?: string;
+      proposedClientReference?: ProposedClientReference | null;
       tasks?: ChecklistTaskInput[];
     }>;
 
@@ -94,6 +109,9 @@ type ClaudeCommandInput = {
     applicabilityRationale?: string;
     evidenceStrategy?: string;
     argosObjective?: string;
+    globalControlReference?: string;
+    clientContext?: string;
+    proposedClientReference?: ProposedClientReference | null;
 
     status?: HomeworkStatus;
     homeworkStatus?: HomeworkStatus;
@@ -136,8 +154,27 @@ type ClaudeCommandInput = {
 
     controlUpdates?: MeetingResponseControlUpdate[];
     unmatchedNotes?: string[];
+
+    applicationEvidenceDataGapSummary?: string;
   };
 };
+
+// Lets the assistant tell which notes came from an uploaded evidence
+// document, an uploaded real-data file, or were typed by hand -- and
+// which document specifically -- so it can reason about evidence vs.
+// data coverage (see EVIDENCE VS. DATA GAP ANALYSIS below). Without
+// this tag every note would look identical regardless of source.
+function noteSourceTag(note: Note): string {
+  if (note.sourceKind === "evidence") {
+    return ` [Source: Evidence${note.sourceDocumentFilename ? ` - ${note.sourceDocumentFilename}` : ""}]`;
+  }
+
+  if (note.sourceKind === "data") {
+    return ` [Source: Data${note.sourceDocumentFilename ? ` - ${note.sourceDocumentFilename}` : ""}]`;
+  }
+
+  return "";
+}
 
 function summarizeApplications(
   applications: Application[]
@@ -162,7 +199,11 @@ function summarizeApplications(
                                 (note, noteIndex) =>
                                   `     ${
                                     noteIndex + 1
-                                  }. ${note}`
+                                  }.${noteSourceTag(note)} ${note.text}${
+                                    note.documentDeleted
+                                      ? " [SOURCE DOCUMENT DELETED -- treat as needing re-verification, not solid evidence]"
+                                      : ""
+                                  }`
                               )
                               .join("\n")
                           : "     - None";
@@ -193,7 +234,11 @@ function summarizeApplications(
                 ? control.notes
                     .map(
                       (note, index) =>
-                        `${index + 1}. ${note}`
+                        `${index + 1}.${noteSourceTag(note)} ${note.text}${
+                          note.documentDeleted
+                            ? " [SOURCE DOCUMENT DELETED -- treat as needing re-verification, not solid evidence]"
+                            : ""
+                        }`
                     )
                     .join("\n")
                 : "- None";
@@ -239,6 +284,9 @@ ${control.evidenceStrategy || "Not defined"}
 
 Argos Objective (Argos Rule Logic):
 ${control.argosObjective || "Not defined"}
+
+Evidence vs. Data Gap Analysis (control-level):
+${control.evidenceDataGapAnalysis || "Not yet analyzed."}
 
 Work Notes (control-level):
 ${notes}
@@ -304,11 +352,19 @@ ${
   application.notes.length > 0
     ? application.notes
         .map(
-          (note, index) => `${index + 1}. ${note}`
+          (note, index) =>
+            `${index + 1}.${noteSourceTag(note)} ${note.text}${
+              note.documentDeleted
+                ? " [SOURCE DOCUMENT DELETED -- treat as needing re-verification, not solid evidence]"
+                : ""
+            }`
         )
         .join("\n")
     : "- None"
 }
+
+Evidence vs. Data Gap Summary (application-level, high level):
+${application.evidenceDataGapSummary || "Not yet analyzed."}
 
 Controls:
 
@@ -367,6 +423,71 @@ function summarizeAcceptedLearnings(
         }" (category: ${learning.suggestedCategory})`
     )
     .join("\n");
+}
+
+type EvidenceRow = {
+  applicationId: string;
+  filename: string;
+  kind: string;
+  extractedText: string;
+  truncated: boolean;
+  uploadedAt: Date;
+};
+
+// Combined text budget across every stored document, since this gets
+// added to every request regardless of relevance. Newest documents
+// are kept in full; once the budget is exhausted, older ones are
+// dropped entirely rather than silently truncated mid-document (a
+// clean cutoff between whole documents is easier for the model to
+// reason about than a half-included one).
+const EVIDENCE_ARCHIVE_CHAR_BUDGET = 40_000;
+
+function formatEvidenceArchive(
+  evidenceRows: EvidenceRow[],
+  applications: Application[]
+): string {
+  if (evidenceRows.length === 0) {
+    return "No evidence documents have been uploaded yet.";
+  }
+
+  const applicationNameById = new Map(
+    applications.map((application) => [
+      application.id,
+      application.name || application.id,
+    ])
+  );
+
+  let remainingBudget =
+    EVIDENCE_ARCHIVE_CHAR_BUDGET;
+
+  const includedEntries: string[] = [];
+  let omittedCount = 0;
+
+  for (const row of evidenceRows) {
+    const applicationName =
+      applicationNameById.get(
+        row.applicationId
+      ) ?? row.applicationId;
+
+    const entry = `### ${row.filename} [${row.kind === "data" ? "Data" : "Evidence"}] (${applicationName}, uploaded ${row.uploadedAt.toISOString().slice(0, 10)}${row.truncated ? ", stored copy truncated at upload -- not necessarily the full document" : ""})\n${row.extractedText}`;
+
+    if (entry.length > remainingBudget) {
+      omittedCount += 1;
+      continue;
+    }
+
+    includedEntries.push(entry);
+    remainingBudget -= entry.length;
+  }
+
+  const omittedNote =
+    omittedCount > 0
+      ? `\n\n(${omittedCount} older document(s) omitted here to stay within context budget -- still stored and can be referenced by name if the user asks specifically.)`
+      : "";
+
+  return (
+    includedEntries.join("\n\n") + omittedNote
+  );
 }
 
 function getCurrentDate(): string {
@@ -505,6 +626,71 @@ export async function POST(
       );
     }
 
+    let acceptedClientReferenceEntries: {
+      code: string;
+      title: string;
+    }[] = [];
+
+    try {
+      acceptedClientReferenceEntries =
+        await learningDb
+          .select({
+            code: clientReferenceLearnings.code,
+            title: clientReferenceLearnings.title,
+          })
+          .from(clientReferenceLearnings)
+          .where(
+            eq(
+              clientReferenceLearnings.status,
+              "accepted"
+            )
+          )
+          .orderBy(
+            desc(
+              clientReferenceLearnings.createdAt
+            )
+          )
+          .limit(50);
+    } catch (error) {
+      console.error(
+        "Unable to load accepted client reference learnings (continuing without them):",
+        error
+      );
+    }
+
+    let evidenceArchiveText = "";
+
+    try {
+      const evidenceRows = await db
+        .select({
+          applicationId:
+            evidenceDocuments.applicationId,
+          filename: evidenceDocuments.filename,
+          kind: evidenceDocuments.kind,
+          extractedText:
+            evidenceDocuments.extractedText,
+          truncated:
+            evidenceDocuments.truncated,
+          uploadedAt:
+            evidenceDocuments.uploadedAt,
+        })
+        .from(evidenceDocuments)
+        .orderBy(
+          desc(evidenceDocuments.uploadedAt)
+        );
+
+      evidenceArchiveText =
+        formatEvidenceArchive(
+          evidenceRows,
+          applications
+        );
+    } catch (error) {
+      console.error(
+        "Unable to load stored evidence documents (continuing without them):",
+        error
+      );
+    }
+
     const response =
       await anthropic.messages.create({
         model: "claude-haiku-4-5",
@@ -607,6 +793,38 @@ Treat screenshots as supplemental evidence only.
 
 A checklist must challenge whether a screenshot can be replaced by a direct, repeatable, read-only data source.
 
+STORED EVIDENCE ARCHIVE USAGE
+
+The user can attach evidence documents (Word, Excel, PowerPoint, PDF,
+CSV, text) from the chat window; their extracted text is shown below
+under STORED EVIDENCE ARCHIVE, grouped by application and filename.
+Treat this archive as real, already-collected evidence for that
+application -- the same standing as anything else in CURRENT WORK
+GOVERNOR DATA.
+
+Whenever the user asks a question about an application (not just
+during an evidence upload), check the archive for that application
+before saying information is unavailable or asking the user to
+provide it -- the answer may already be sitting in a document they
+uploaded earlier. Cite the filename when you use something from it.
+
+If the archive genuinely does not contain what is being asked,
+say so plainly. Never invent facts to fill a gap the archive does not
+cover, and never present a stored document as more complete than it
+is -- note when an entry is flagged as truncated at upload, or when
+older documents were omitted from what is shown here for length.
+
+COMPANY NAME REDACTION
+
+The real company name in uploaded evidence/data is "Vistra" (any
+casing, any form -- "Vistra Energy", "Vistra's", etc.). Whenever you
+write, quote, or paraphrase anything that names it -- in a note, an
+Evidence vs. Data Gap Analysis, an argosObjective, a prep email, a
+progress summary, or any other output -- always write "Client"
+instead, every time, with no exceptions. This is a straightforward
+substitution of the company name only; it never changes, drops, or
+softens the substance of what the evidence/data actually says.
+
 ARGOS OBJECTIVE
 
 Every control must progress toward:
@@ -623,6 +841,144 @@ Every control must progress toward:
 - alert ownership;
 - evidence retention;
 - repeatable Argos rule logic.
+
+By default, argosObjective is one to three concrete sentences
+describing this translation for the control, sharpened over time per
+CHECKLIST ITEM NOTES AND ADAPTIVE ANALYSIS below.
+
+WHEN TO PRODUCE A FULL ARGOS RULE SPECIFICATION
+
+When the application/control notes, context, or the conversation
+actually contain real, specific technical detail about how evidence
+for this control is or will be collected -- real data source or table
+names, a real collection method (an API, a query, a script, a
+platform export), real field names, real thresholds or policy values,
+or real classifications of what is in scope -- synthesize that
+information into a full, structured Argos rule specification in
+argosObjective instead of a short paragraph. argosObjective is
+rendered as Markdown, so use this exact section structure:
+
+## Data Sources
+One line per data source: what it is, and how it is collected (query,
+API, script, platform export). Use the real names/methods the user
+provided, verbatim where given.
+
+## Account Classifications & Scope
+Any premise, scoping rule, or classification the user described that
+determines what is evaluated versus exempt or out of scope.
+
+## Finding Type N: <name>
+One block per distinct finding the rule detects. Each needs: Scope
+(what is evaluated), Rule (the exact condition), and a finding code
+with a severity (CRITICAL / HIGH / MEDIUM / LOW / INFORMATIONAL) drawn
+from or consistent with what the user described.
+
+## Compliance Thresholds
+A short list of the concrete threshold each finding is measured
+against.
+
+## Counting Rule
+How findings are deduplicated or counted into a headline number, if
+the user specified or implied one.
+
+## Cross-Control Routing (Informational)
+Any finding that actually belongs to a different control's scope but
+is surfaced here for reference -- state which control it routes to
+and that it should not count toward this control's pass/fail.
+
+Only include a section if the user's own information actually
+supports it -- omit Compliance Thresholds, Counting Rule, or
+Cross-Control Routing entirely rather than inventing content for
+them. Never invent a table name, collector method, field name,
+threshold, or finding code that was not stated or clearly implied by
+the user. If real technical detail exists for some parts of the
+control but not others, produce the full structure for the parts that
+have it and fall back to a short, honest sentence -- not a fabricated
+guess -- for the rest.
+
+When no real technical or data-source detail exists yet for this
+control, keep argosObjective to the short paragraph form, and state
+plainly what specific information (a data source, a collection
+method, a threshold) is still needed to build the full rule set --
+never fabricate it to look complete.
+
+EVIDENCE VS. DATA GAP ANALYSIS
+
+Every note carries a source tag: [Source: Evidence - filename],
+[Source: Data - filename], or no tag at all for a manually typed note
+(see Work Notes / Notes against this item in CURRENT WORK GOVERNOR
+DATA, and the STORED EVIDENCE ARCHIVE entries, each labeled [Evidence]
+or [Data]). "Evidence" is something like a workpaper, policy document,
+or screenshot -- it shows what the application team says or displays.
+"Data" is a real export/config/pull from the application itself -- it
+independently proves what evidence only claims or shows.
+
+Whenever you process an evidence or real-data upload via
+PROCESS_MEETING_RESPONSE for a control, check whether that control now
+has notes tagged as BOTH Evidence and Data (combining what this upload
+just added with anything already on file for it, per the source tags
+above). If it does, include payload.controlUpdates[].evidenceDataGapAnalysis
+for that control, written as Markdown with exactly these four
+sections, in this order, each a "## " heading followed by a short
+bullet list (never a paragraph of prose):
+
+## What This Covers
+1-2 bullets: the specific thing being evaluated for this control (e.g.
+"Password rotation compliance for service and user accounts" or
+"Privileged access population and approval status").
+
+## Description
+1-3 bullets: what was actually submitted -- name each evidence
+document and each data file/export by filename, with its date if
+known, and what each one claims or contains.
+
+## Evidence vs. Data Found
+One bullet per distinct claim or fact, stated as
+"<claim/fact> -- [Confirmed by data | Contradicted by data | Not
+covered by data]", citing the specific data point that confirms,
+contradicts, or is silent on it. This is where you flag any actual
+discrepancy between what the evidence says and what the data shows --
+call a contradiction out explicitly and plainly, do not soften it.
+
+## What's Missing From Data
+1-4 bullets: specifically what real data (not evidence) still needs to
+be collected so it can fully replace the evidence -- the objective is
+to reach a point where every claim currently backed only by a
+screenshot or document is instead backed by an authoritative data
+pull. Phrase each bullet as the concrete gap, not a vague call to
+"collect more evidence": e.g. "LastPasswordChangeDate is not
+populated in the current export -- need a data source that actually
+tracks password change timestamps" rather than "more password data is
+needed."
+
+If the control only has one kind (all Evidence, or all Data, or
+neither), leave evidenceDataGapAnalysis out of that controlUpdate
+entirely rather than writing a placeholder about it. Never invent a
+specific missing data source, field, or export name, and never invent
+a discrepancy that isn't actually there -- every bullet must trace to
+something actually present (or actually absent) in the notes/archive,
+not a fabricated guess.
+
+When you write evidenceDataGapAnalysis for at least one control this
+turn, also set payload.applicationEvidenceDataGapSummary: one or two
+sentences, application-wide, at a much higher level than the
+per-control analysis -- e.g. "Evidence is well covered across most
+controls, but real data has only been collected for CMDB Review;
+Password Management and Access Recertification currently rely on
+evidence alone." Base it on the state of every control on the
+application, not just the one(s) this upload touched.
+
+The user can also ask you directly to analyze or refresh this (e.g.
+"analyze the evidence vs data gap for X" or "refresh the evidence vs
+data analysis for control Y"), without a new upload. Use action
+UPDATE_EVIDENCE_DATA_GAP_ANALYSIS for that: payload.application, an
+optional payload.applicationEvidenceDataGapSummary, and
+payload.controlUpdates -- one entry per control in scope that
+currently has both Evidence and Data notes, each with control,
+evidenceDataGapAnalysis, and an empty taskNotes: [] (taskNotes is
+required by the shared schema but must always be empty here -- this
+action never touches notes, tasks, or checklist status, only these
+two fields), following the exact same writing guidance above.
 
 APPLICATION CONTEXT
 
@@ -921,18 +1277,94 @@ including capitalization. Do not convert it into an APP-NN
 identifier and do not invent a numbered identifier for a named
 application.
 
-Only produce an APP-NN identifier when:
+Only produce an APP-NN identifier when the user references an
+application purely by number, for example "application 1" to APP-01,
+"app 18" to APP-18, "Application-9" to APP-09.
 
-- the user references an application purely by number, for example
-  "application 1" to APP-01, "app 18" to APP-18,
-  "Application-9" to APP-09; or
-- the user does not give any application name at all. In that case
-  leave payload.application as an empty string; the system will
-  automatically assign the next available APP-NN identifier.
+Leaving payload.application as an empty string is only ever correct
+for CREATE_APPLICATION, and only when the user gives no application
+name or number at all -- that empty string is what triggers
+auto-assignment of the next available APP-NN identifier for the new
+application being created.
+
+For every other action -- anything that reads, updates, or reports on
+an application that already exists (UPDATE_APPLICATION_CONTEXT,
+ADD_CONTROL, UPDATE_TASK_NOTES, PROCESS_MEETING_RESPONSE,
+EXPORT_MEETING_PREP_EMAIL, UPDATE_EVIDENCE_DATA_GAP_ANALYSIS, and so
+on) -- payload.application must
+never be empty. Resolve it from whatever named or numbered the
+application in the current message or the recent conversation (the
+message will normally name it explicitly, for example "...on
+Salesforce - CXT" or "for APP-18"). An empty payload.application on
+any of these actions is always wrong, even under time or length
+pressure from a long message -- it is never acceptable to leave it
+blank and let it fail lookup.
 
 Use existing control names exactly.
 
 Do not invent applications or controls.
+
+CLIENT CONTROL REFERENCE CODES
+
+This is the reference table of the user's own internal client control
+codes. The first group is fixed and permanent. The second group was
+learned from the user's own past messages and approved by the user
+through the Learning Engine review flow -- treat it exactly the same
+as the fixed group.
+
+${CLIENT_REFERENCE_TABLE.map(
+  (entry) =>
+    `- ${formatClientReferenceEntry(entry)}`
+).join("\n")}
+${
+  acceptedClientReferenceEntries.length > 0
+    ? "\n" +
+      acceptedClientReferenceEntries
+        .map(
+          (entry) =>
+            `- ${entry.code} - ${entry.title}`
+        )
+        .join("\n")
+    : ""
+}
+
+Whenever creating or adding a control (CREATE_APPLICATION,
+ADD_CONTROL), check whether the user's own message -- not the control
+name you chose, not your own inference -- explicitly references one of
+these codes or clearly names its description (by code like "IS04", or
+by describing the same thing the entry describes). When it does, set
+the control's clientContext to the exact matching entry from this list
+verbatim (for example "IS02 - User provisioning"). When the user's
+message does not reference one of these entries, leave clientContext
+as an empty string. Never guess a code from the control's name or
+objective alone, and never invent a code that is not in this table --
+only use this field when the user's own words actually supplied the
+match.
+
+PROPOSING A NEW CLIENT CONTROL REFERENCE CODE
+
+If the user's own message contains something that is clearly a client
+control-code reference for this control -- structured the same way as
+the table above (a short code plus a title/description, e.g. "IS09
+vendor risk assessment", or an explicit statement like "this one is
+code XR4, external review") -- but that exact code is NOT already in
+the table above (fixed or learned), do not fabricate a match into
+clientContext and do not silently drop it either. Instead:
+
+- Leave clientContext as an empty string for that control (it is not
+  yet an approved reference).
+- Set proposedClientReference to an object with:
+  - code: the exact code as the user wrote it;
+  - title: the exact title/description as the user wrote it, only
+    lightly cleaned up for spelling/capitalization, never reworded or
+    inferred beyond what they actually wrote;
+  - sourceQuote: a short verbatim excerpt from the user's message that
+    contains this code and title, proving where it came from.
+- Only propose something that looks like a genuine code+title pair in
+  the user's own words. Never propose a value based on your own
+  classification of the control -- that is what globalControlReference
+  is for, not this. When in doubt, do not propose anything; leave
+  proposedClientReference unset.
 
 CREATE APPLICATION
 
@@ -965,6 +1397,47 @@ under CONTEXTUAL CONTROL ANALYSIS and the same ACCEPTED LEARNINGS USAGE
 rules below — including tagging any task drawn from a matching accepted
 learning with that learning's id. Do not leave tasks empty when you have
 enough information to generate a reasonable checklist.
+
+payload.controls[].globalControlReference is required for every control.
+Many organizations name controls with internal, team-specific language
+(for example "CMDB Asset Validation" or "Firefighter Access Review")
+that does not match any external standard's wording. For each control,
+analyze its name and objective and identify the actual globally
+recognized standard control domain it represents — for a SOX control
+this means the standard ITGC (IT General Controls) domain, using
+conventional, widely used ITGC terminology, for example:
+
+- Logical Access Management (user access provisioning, deprovisioning,
+  and periodic access review);
+- Privileged / Emergency Access Management (elevated or break-glass
+  access, e.g. "Firefighter" access);
+- Change Management (application, configuration, or infrastructure
+  changes);
+- Program Development / SDLC (software development lifecycle, CI/CD
+  pipeline governance);
+- Segregation of Duties;
+- Security Configuration Management (password policy, authentication
+  settings, hardening);
+- IT Asset & Configuration Management (CMDB, asset inventory);
+- Computer Operations (job scheduling, batch processing);
+- Backup and Recovery;
+- Monitoring and Logging.
+
+For a PCI DSS control, reference the actual PCI DSS requirement number
+and title it maps to instead (for example "PCI DSS Requirement 8.2 —
+User Authentication").
+
+This must be a real, defensible mapping grounded in the control's
+actual name and objective — never a fabricated or guessed-sounding
+label, and never an invented numeric identifier that doesn't correspond
+to a real, recognized standard. If a control genuinely does not map
+cleanly to one of the standard domains, use the closest recognized ITGC
+domain rather than inventing a new one, and prefer the general domain
+name over a specific numbered citation you are not confident is real.
+
+payload.controls[].clientContext is also required for every control —
+follow the CLIENT CONTROL REFERENCE CODES rules above (empty string
+unless the user's own message actually referenced one of those codes).
 
 UPDATE APPLICATION CONTEXT
 
@@ -1011,6 +1484,22 @@ Do not create a new application when the user is renaming an
 existing one. Do not use RENAME_APPLICATION to change hosting,
 purpose, or any other context field.
 
+ADD CONTROL
+
+Use ADD_CONTROL when the user asks to add a single new control to an
+existing application.
+
+payload.globalControlReference is required, using the exact same
+analysis and rules described under CREATE APPLICATION's
+payload.controls[].globalControlReference — identify the real,
+globally recognized standard control domain (ITGC domain for SOX, or
+the specific requirement for PCI DSS) that this control's name and
+objective represent. Never fabricate a reference.
+
+payload.clientContext follows the CLIENT CONTROL REFERENCE CODES rules
+above — only set it when the user's own message referenced one of
+those codes; otherwise leave it as an empty string.
+
 CHECKLIST REVIEW
 
 Use UPDATE_CHECKLIST_STATUS with Approved when the user says:
@@ -1031,11 +1520,50 @@ Use UPDATE_CONTROL_STATUS with Completed only when explicitly requested.
 
 Do not automatically mark a control Completed merely because tasks are checked.
 
+CONTROL WORK STATUS
+
+Use UPDATE_CONTROL_WORK only for an explicit, narrow status change to
+one control: its homework status, its workflow stage, its control
+status, or a short administrative note about that status change (for
+example "mark the homework for X as completed" or "move X to the
+Discovery stage"). This is a status-tracking command, not a
+content command.
+
+Never use UPDATE_CONTROL_WORK for anything containing real
+findings, evidence, answers, or substantive content of any kind --
+even one fact, even about a single control. That always belongs to
+UPDATE_TASK_NOTES, PROCESS_MEETING_RESPONSE, or UPDATE_NOTES, per the
+rules in NOTES and CHECKLIST ITEM NOTES AND ADAPTIVE ANALYSIS below,
+never here.
+
 NOTES
 
-Use UPDATE_NOTES for one control.
+UPDATE_NOTES and UPDATE_ALL_CONTROLS are only for a short, literal
+note that is genuinely the same single thing across what it's applied
+to -- for example "reviewed by John on 5/1", or "on hold pending
+access review" applied to every control at once. They write one
+control-level note; they never touch checklist items.
 
-Use UPDATE_ALL_CONTROLS when the same note applies to every control.
+Use UPDATE_NOTES for one control, and UPDATE_ALL_CONTROLS only when
+that exact same short note is meant to apply identically to every
+control in the application -- not merely because the message happens
+to be long, or because the user said something broad like "for the
+controls that are necessary." That phrasing describes selectivity
+(some controls, not all), not identical content across controls, and
+is not a signal to use UPDATE_ALL_CONTROLS.
+
+Never use UPDATE_NOTES or UPDATE_ALL_CONTROLS for evidence, findings,
+or answers of any real substance -- multiple sentences, multiple
+topics, or anything that reads like it is answering specific
+questions -- even if it is only about one control. That content
+belongs in checklist items, not as an undifferentiated blob of
+control-level notes, and must go through PROCESS_MEETING_RESPONSE
+instead (see PROCESSING THE APPLICATION TEAM'S REPLY below), which
+distributes it to the specific items it actually answers. Do not fall
+back to UPDATE_NOTES/UPDATE_ALL_CONTROLS as an easier substitute when
+matching content to checklist items feels uncertain -- attempt the
+match, and use payload.unmatchedNotes for whatever doesn't clearly
+fit, rather than abandoning the distribution entirely.
 
 Use:
 
@@ -1045,14 +1573,19 @@ Use:
 
 CHECKLIST ITEM NOTES AND ADAPTIVE ANALYSIS
 
-Use UPDATE_TASK_NOTES when the user adds, records, or shares a note
-against one specific checklist item, at any time, before or after
-meetings, and possibly multiple times before a control is complete.
+Use UPDATE_TASK_NOTES only when the user's message maps to exactly
+one specific checklist item, at any time, before or after meetings,
+and possibly multiple times before a control is complete. If the
+message contains answers to more than one item, use
+PROCESS_MEETING_RESPONSE instead -- see PROCESSING THE APPLICATION
+TEAM'S REPLY below.
 
-payload.taskText must match an existing checklist item shown for
-that control in CURRENT WORK GOVERNOR DATA. Never invent a task that
-does not exist. If no item clearly matches, use RESPOND_ONLY and ask
-which item the note belongs to.
+payload.taskText is required and must never be empty. It must match
+an existing checklist item shown for that control in CURRENT WORK
+GOVERNOR DATA. Never invent a task that does not exist, and never
+emit UPDATE_TASK_NOTES with a blank or guessed payload.taskText. If
+no single item clearly matches, do not call UPDATE_TASK_NOTES at
+all -- use RESPOND_ONLY and ask which item the note belongs to.
 
 payload.note is the note to record against that item, written as a
 grammatically corrected version of what the user actually said. Fix
@@ -1060,6 +1593,16 @@ spelling, grammar, capitalization, and punctuation only. Never change,
 add, remove, or reinterpret any fact, name, number, date, or meaning
 the user provided. If the user's wording is already clean, keep it
 essentially as written.
+
+Exception: if the message says it is providing one or more attached
+evidence documents (it will name them and ask for a source tag), end
+the note with a tag naming the exact document the information came
+from, in this form: [Attachment: <filename>]. This is provenance
+metadata about where the note came from, not a change to its
+substance, so it does not conflict with the never-add-facts rule
+above. If a note draws on more than one attached document, include a
+tag for each. Never add this tag when the note is not actually based
+on an attached document.
 
 If the user's message about the note is too ambiguous, incomplete,
 or self-contradictory for you to understand what actually happened
@@ -1073,9 +1616,25 @@ other note already recorded for that control (control-level notes
 and every checklist item's notes) and decide whether the checklist
 itself should change:
 
-- If the notes reveal a genuine gap the current checklist does not
-  cover, add a new item through addTasks with a fitting category and
-  a required flag.
+- Prefer refining an existing item over adding a new one. When a note
+  adds detail, a correction, or more evidence about something the
+  checklist already asks for -- even from a different angle -- sharpen
+  that item's own wording (and controlObjective / controlRisk /
+  evidenceStrategy where useful) instead of creating a new item for
+  it. The checklist should converge toward a stable, sufficient set of
+  items that together validate this control's specific risk, not grow
+  indefinitely as more detail accumulates on things it already covers.
+  A control's completion percentage should be able to reach and stay
+  at 100% once that sufficient set is in place -- do not keep the
+  denominator growing by adding items that are really just refinements
+  of existing coverage.
+- Only add a new item through addTasks when the notes reveal a
+  genuinely new component the checklist has no coverage for at all --
+  a new integration, a new identity type, a new system, a new evidence
+  source none of the current items touch -- not a more detailed answer
+  to something already asked. When it's ambiguous whether something is
+  new scope or more detail on existing scope, treat it as existing
+  scope and refine rather than extend.
 - If an existing item is now redundant, fully answered with nothing
   further to track, or turns out not applicable, mark it as no longer
   relevant by listing its exact existing text in
@@ -1135,14 +1694,29 @@ objectives reduce the value of that section.
 
 PROCESSING THE APPLICATION TEAM'S REPLY
 
-Use PROCESS_MEETING_RESPONSE when the user pastes back the
-application team's reply or answers to a meeting-prep email, for
-example:
+Use PROCESS_MEETING_RESPONSE any time the user pastes back a batch of
+answers, findings, or evidence that covers more than one checklist
+item, whether or not it was actually a meeting reply. This includes:
 
-- here's the reply from the app team for APP-18: ...;
-- the application team answered these questions: ...;
-- got this back before our meeting: ...;
-- APP-02's team sent this over: ...
+- the application team's reply or answers to a meeting-prep email
+  (for example: "here's the reply from the app team for APP-18: ...";
+  "the application team answered these questions: ..."; "got this
+  back before our meeting: ...");
+- the user's own numbered/bulleted answers or data-collection results
+  for a control (for example: "update the notes for APP-18 -- 1. ...
+  2. ... 3. ..."; "I'm answering these with what I could retrieve for
+  CXT: ...").
+
+The deciding signal is not the word "meeting" -- it is whether the
+message contains substantive content on more than one distinct topic
+or question, even if it is not phrased as direct answers to the
+checklist's exact current wording (dense findings, forensic-style
+write-ups, and numbered analysis sections with sub-headers all count).
+If it does, always use PROCESS_MEETING_RESPONSE -- never
+UPDATE_TASK_NOTES, UPDATE_NOTES, UPDATE_ALL_CONTROLS, or
+UPDATE_CONTROL_WORK -- even if the user's own wording says "note,"
+"notes," or "update the notes" (singular), and even if every topic
+belongs to just one control.
 
 Unlike UPDATE_TASK_NOTES, which records one note against one
 checklist item, this reply may answer several different things at
@@ -1175,7 +1749,12 @@ information for. For each entry:
   text for that control, and note is a grammatically corrected
   version of what the reply actually said for that item -- fix
   spelling, grammar, and punctuation only, never add, remove, or
-  reinterpret any fact.
+  reinterpret any fact. Exception: if the reply says it is providing
+  attached evidence document(s) and asks for a source tag, end the
+  note with [Attachment: <filename>] naming the document the
+  information came from (more than one tag if the note draws on
+  multiple documents) -- this is provenance metadata, not a change to
+  the note's substance.
 - After applying those notes, apply the same adaptive-analysis rules
   as UPDATE_TASK_NOTES: if the combined notes reveal a genuine gap,
   add a new item through addTasks with a fitting category and
@@ -1242,7 +1821,10 @@ Use EXPORT_MEETING_PREP_EMAIL when the user says:
 - draft a prep email for cricket;
 - email ready export before the meeting;
 - send this to the application team before we meet;
-- I need to email the app team before our review.
+- I need to email the app team before our review;
+- give me an email-ready version for APP-18, for control "User
+  Access Review" only (control-scoped -- see CONTROL-SCOPED EMAILS
+  below).
 
 This produces a short, plain-language email the user sends to the
 application team BEFORE the compliance meeting, so the team can come
@@ -1269,8 +1851,21 @@ Build payload.email from CURRENT WORK GOVERNOR DATA for that
 application only. Never invent facts the data does not contain --
 anything unknown becomes an open question instead.
 
-payload.email.subject: one short line naming the application and the
-purpose of the email.
+CONTROL-SCOPED EMAILS
+
+If the user's request names one specific control (for example: "for
+control \"User Access Review\" only"), scope the entire email to that
+control alone -- checklistHighlights and openQuestions are built only
+from that control's objective, risk, checklist items, and notes, not
+from any other control on the application. applicationSummary and
+applicationUse may still use application-level context (purpose,
+business process) since that framing helps the reader, but every
+checklist-derived section stays limited to the one named control. When
+no specific control is named, continue to cover every control on the
+application as before.
+
+payload.email.subject: one short line naming the application (and, for
+a control-scoped email, the control too) and the purpose of the email.
 
 payload.email.applicationSummary: two to three plain sentences on
 what the application is and why it exists, built from
@@ -1285,15 +1880,17 @@ let the open questions cover it.
 
 payload.email.checklistHighlights: four to eight short, plain-English
 bullets summarizing where things stand across every control on this
-application right now -- what's already confirmed, what's still open,
-and anything already captured in notes. Write for someone outside
-compliance: no framework jargon, no internal status labels.
+application right now (or, for a control-scoped email, across that
+one control's checklist alone) -- what's already confirmed, what's
+still open, and anything already captured in notes. Write for someone
+outside compliance: no framework jargon, no internal status labels.
 
 payload.email.openQuestions: five to eight questions, one per
 distinct topic, that together cover every real gap in the
-application's context and open checklist items at a HIGH LEVEL, in
-plain language, so the application team can read and answer quickly
-without being compliance experts.
+application's context and open checklist items (or, for a
+control-scoped email, that one control's open checklist items) at a
+HIGH LEVEL, in plain language, so the application team can read and
+answer quickly without being compliance experts.
 
 First, group every gap -- across missing/partial application context
 fields and every required Discovery, Access, and Homework checklist
@@ -1477,6 +2074,10 @@ ${summarizeAcceptedLearnings(
   acceptedLearnings
 )}
 
+STORED EVIDENCE ARCHIVE
+
+${evidenceArchiveText}
+
 CURRENT WORK GOVERNOR DATA
 
 ${summarizeApplications(
@@ -1528,6 +2129,9 @@ ${message}
                     "DELETE_ALL_APPLICATIONS",
                     "CLEAR_CHAT_HISTORY",
                     "EXPORT_PROGRESS_REPORT",
+                    "EXPORT_MEETING_PREP_EMAIL",
+                    "PROCESS_MEETING_RESPONSE",
+                    "UPDATE_EVIDENCE_DATA_GAP_ANALYSIS",
                     "BACKUP_APPLICATION_DATA",
                     "LIST_BACKUPS",
                     "ROLLBACK_BACKUP",
@@ -1629,6 +2233,39 @@ ${message}
                             ],
                           },
 
+                          globalControlReference: {
+                            type: "string",
+                          },
+
+                          clientContext: {
+                            type: "string",
+                          },
+
+                          proposedClientReference: {
+                            type: "object",
+
+                            properties: {
+                              code: {
+                                type: "string",
+                              },
+                              title: {
+                                type: "string",
+                              },
+                              sourceQuote: {
+                                type: "string",
+                              },
+                            },
+
+                            required: [
+                              "code",
+                              "title",
+                              "sourceQuote",
+                            ],
+
+                            additionalProperties:
+                              false,
+                          },
+
                           tasks: {
                             type: "array",
 
@@ -1679,6 +2316,8 @@ ${message}
                         required: [
                           "name",
                           "framework",
+                          "globalControlReference",
+                          "clientContext",
                         ],
 
                         additionalProperties:
@@ -1810,6 +2449,38 @@ ${message}
 
                     argosObjective: {
                       type: "string",
+                    },
+
+                    globalControlReference: {
+                      type: "string",
+                    },
+
+                    clientContext: {
+                      type: "string",
+                    },
+
+                    proposedClientReference: {
+                      type: "object",
+
+                      properties: {
+                        code: {
+                          type: "string",
+                        },
+                        title: {
+                          type: "string",
+                        },
+                        sourceQuote: {
+                          type: "string",
+                        },
+                      },
+
+                      required: [
+                        "code",
+                        "title",
+                        "sourceQuote",
+                      ],
+
+                      additionalProperties: false,
                     },
 
                     status: {
@@ -2124,6 +2795,11 @@ ${message}
                       type: "string",
                     },
 
+                    applicationEvidenceDataGapSummary:
+                      {
+                        type: "string",
+                      },
+
                     email: {
                       type: "object",
 
@@ -2345,6 +3021,11 @@ ${message}
                           qaScoreRationale: {
                             type: "string",
                           },
+
+                          evidenceDataGapAnalysis:
+                            {
+                              type: "string",
+                            },
                         },
 
                         required: [
@@ -2452,6 +3133,14 @@ ${message}
                 name: control.name,
                 framework:
                   control.framework ?? "SOX",
+                globalControlReference:
+                  control.globalControlReference ??
+                  "",
+                clientContext:
+                  control.clientContext ?? "",
+                proposedClientReference:
+                  control.proposedClientReference ??
+                  null,
                 tasks: sanitizeTaskInputs(
                   control.tasks
                 ),
@@ -2543,6 +3232,19 @@ ${message}
             argosObjective:
               rawCommand.payload
                 .argosObjective,
+
+            globalControlReference:
+              rawCommand.payload
+                .globalControlReference,
+
+            clientContext:
+              rawCommand.payload
+                .clientContext,
+
+            proposedClientReference:
+              rawCommand.payload
+                .proposedClientReference ??
+              null,
 
             tasks: sanitizeTaskInputs(
               rawCommand.payload.tasks
@@ -3125,6 +3827,9 @@ ${message}
 
               qaScoreRationale:
                 update.qaScoreRationale,
+
+              evidenceDataGapAnalysis:
+                update.evidenceDataGapAnalysis,
             }));
 
         command = {
@@ -3155,6 +3860,51 @@ ${message}
 
             message:
               rawCommand.payload.message,
+
+            applicationEvidenceDataGapSummary:
+              rawCommand.payload
+                .applicationEvidenceDataGapSummary,
+          },
+        };
+
+        break;
+      }
+
+      case "UPDATE_EVIDENCE_DATA_GAP_ANALYSIS": {
+        const gapControlUpdates = (
+          rawCommand.payload.controlUpdates ??
+          []
+        )
+          .filter(
+            (update) =>
+              isNonEmptyString(
+                update?.control
+              ) &&
+              isNonEmptyString(
+                update?.evidenceDataGapAnalysis
+              )
+          )
+          .map((update) => ({
+            control: update.control,
+            evidenceDataGapAnalysis:
+              update.evidenceDataGapAnalysis as string,
+          }));
+
+        command = {
+          action:
+            "UPDATE_EVIDENCE_DATA_GAP_ANALYSIS",
+
+          payload: {
+            application:
+              rawCommand.payload
+                .application ?? "",
+
+            applicationEvidenceDataGapSummary:
+              rawCommand.payload
+                .applicationEvidenceDataGapSummary,
+
+            controlUpdates:
+              gapControlUpdates,
           },
         };
 
@@ -3218,6 +3968,27 @@ ${message}
           },
         };
       }
+    }
+
+    // Tool calls occasionally come back with an empty
+    // payload.application despite the schema and prompt requiring it
+    // -- an LLM content-generation miss, not a parsing bug (seen with
+    // PROCESS_MEETING_RESPONSE on a large evidence upload). When
+    // there's exactly one application in play, there's no real
+    // ambiguity about which one was meant, so default to it rather
+    // than failing with "<empty> was not found".
+    if (
+      "application" in command.payload &&
+      !command.payload.application &&
+      applications.length === 1
+    ) {
+      command = {
+        ...command,
+        payload: {
+          ...command.payload,
+          application: applications[0].id,
+        },
+      } as Command;
     }
 
     return NextResponse.json({

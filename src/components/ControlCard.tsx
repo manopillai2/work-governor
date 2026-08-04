@@ -1,11 +1,19 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
+import ReactMarkdown, {
+  type Components,
+} from "react-markdown";
+import remarkGfm from "remark-gfm";
 
+import { noteSourceLabel } from "@/components/ApplicationCard";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import type {
   ChecklistChangeLogEntry,
@@ -19,6 +27,37 @@ import type {
   WorkflowStage,
 } from "@/services/commandEngine";
 
+// Light-themed (this section sits on a white/indigo-tinted card, not
+// the dark chat/Argos panels elsewhere) markdown renderer for the
+// structured Evidence vs. Data Gap Analysis text -- headings and
+// bullets, no tables or code blocks expected from that content.
+const GAP_ANALYSIS_MARKDOWN_COMPONENTS: Components =
+  {
+    h2: ({ children }) => (
+      <h6 className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-indigo-900 first:mt-0">
+        {children}
+      </h6>
+    ),
+    p: ({ children }) => (
+      <p className="mb-2 text-sm leading-6 text-indigo-800 last:mb-0">
+        {children}
+      </p>
+    ),
+    ul: ({ children }) => (
+      <ul className="mb-2 list-disc space-y-1 pl-5 text-sm text-indigo-800 last:mb-0">
+        {children}
+      </ul>
+    ),
+    li: ({ children }) => (
+      <li className="leading-6">{children}</li>
+    ),
+    strong: ({ children }) => (
+      <strong className="font-semibold text-indigo-950">
+        {children}
+      </strong>
+    ),
+  };
+
 const CHANGE_TYPE_BADGE_CLASSES: Record<
   ChecklistChangeType,
   string
@@ -30,6 +69,8 @@ const CHANGE_TYPE_BADGE_CLASSES: Record<
 
 type ControlCardProps = {
   controlName: string;
+  globalControlReference?: string;
+  clientContext?: string;
   framework: Framework;
 
   stage: WorkflowStage;
@@ -41,6 +82,7 @@ type ControlCardProps = {
   controlRisk: string;
   applicabilityRationale: string;
   evidenceStrategy: string;
+  evidenceDataGapAnalysis?: string;
 
   qaScore?: QaScoreLevel;
   qaScoreRationale?: string;
@@ -65,6 +107,9 @@ type ControlCardProps = {
   onRestoreTask: (taskId: string) => void;
 
   onRegenerateChecklist: () => void;
+  onPrepEmail: () => void;
+  onShowQuestions: () => void;
+  onRefreshEvidenceDataGapAnalysis?: () => void;
 
   onApproveChecklist: () => void;
   onRequestChecklistRevision: () => void;
@@ -84,6 +129,8 @@ const CATEGORY_ORDER: TaskCategory[] = [
 
 export default function ControlCard({
   controlName,
+  globalControlReference = "",
+  clientContext = "",
   framework,
 
   stage,
@@ -95,6 +142,7 @@ export default function ControlCard({
   controlRisk,
   applicabilityRationale,
   evidenceStrategy,
+  evidenceDataGapAnalysis = "",
 
   qaScore = "Not Started",
   qaScoreRationale = "",
@@ -107,12 +155,81 @@ export default function ControlCard({
   onMarkTaskIrrelevant,
   onRestoreTask,
   onRegenerateChecklist,
+  onPrepEmail,
+  onShowQuestions,
+  onRefreshEvidenceDataGapAnalysis,
   onApproveChecklist,
   onRequestChecklistRevision,
   onCompleteControl,
 }: ControlCardProps) {
   const [expanded, setExpanded] =
     useState(false);
+
+  const [menuOpen, setMenuOpen] =
+    useState(false);
+
+  const menuButtonRef =
+    useRef<HTMLButtonElement | null>(null);
+
+  const [menuPosition, setMenuPosition] =
+    useState<{
+      top: number;
+      right: number;
+    } | null>(null);
+
+  function openMenu() {
+    const rect =
+      menuButtonRef.current?.getBoundingClientRect();
+
+    if (!rect) {
+      return;
+    }
+
+    setMenuPosition({
+      top: rect.bottom + 4,
+      right:
+        window.innerWidth - rect.right,
+    });
+
+    setMenuOpen(true);
+  }
+
+  // Rendered via a portal (position: fixed, escapes every
+  // overflow-hidden/scrolling ancestor -- the card, the application
+  // card, and the scrollable controls list all clip a normally
+  // positioned dropdown), so close it on scroll/resize instead of
+  // trying to keep it glued to the button.
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    function closeMenu() {
+      setMenuOpen(false);
+    }
+
+    window.addEventListener(
+      "scroll",
+      closeMenu,
+      true
+    );
+    window.addEventListener(
+      "resize",
+      closeMenu
+    );
+
+    return () => {
+      window.removeEventListener(
+        "scroll",
+        closeMenu,
+        true
+      );
+      window.removeEventListener(
+        "resize",
+        closeMenu
+      );
+    };
+  }, [menuOpen]);
 
   // Accordion within this control only: opening one section closes
   // whichever other one was open. Each ControlCard instance owns its
@@ -180,21 +297,25 @@ export default function ControlCard({
             {controlName}
           </h4>
 
-          <div className="mt-2 flex flex-wrap gap-2">
-            <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
-              {framework}
-            </span>
+          {globalControlReference ||
+          clientContext ? (
+            <div className="mt-0.5 flex w-full min-w-0 items-center justify-between gap-2">
+              {globalControlReference ? (
+                <span className="min-w-0 truncate text-xs text-slate-500">
+                  {globalControlReference}
+                </span>
+              ) : (
+                <span />
+              )}
 
-            <ControlStatusBadge
-              status={controlStatus}
-            />
-
-            <ChecklistStatusBadge
-              status={checklistStatus}
-            />
-
-            <QaScoreBadge score={qaScore} />
-          </div>
+              {clientContext ? (
+                <span className="min-w-0 shrink-0 truncate text-xs text-blue-600">
+                  Client Context:{" "}
+                  {clientContext}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-3 text-xs text-slate-500">
             {completedTasks} of {totalTasks} tasks
@@ -203,57 +324,146 @@ export default function ControlCard({
           </div>
         </button>
 
-        <div className="flex shrink-0 items-center self-center">
+        <div className="relative flex shrink-0 items-center gap-2 self-center">
           <button
             type="button"
-            onClick={onCompleteControl}
-            disabled={
-              controlStatus !==
-                "Ready for Review" &&
-              controlStatus !== "Completed"
+            onClick={() =>
+              setExpanded(
+                (current) => !current
+              )
             }
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-expanded={expanded}
+            aria-label={
+              expanded
+                ? "Collapse control"
+                : "Expand control"
+            }
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-lg text-slate-500 hover:bg-slate-100"
           >
-            {controlStatus === "Completed"
-              ? "Control Completed"
-              : "Mark Control Completed"}
+            {expanded ? "−" : "+"}
           </button>
-        </div>
-
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <div className="flex items-center gap-3">
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-              Stage: {stage}
-            </span>
-
-            <button
-              type="button"
-              onClick={() =>
-                setExpanded(
-                  (current) => !current
-                )
-              }
-              aria-expanded={expanded}
-              aria-label={
-                expanded
-                  ? "Collapse control"
-                  : "Expand control"
-              }
-              className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-lg text-slate-500 hover:bg-slate-100"
-            >
-              {expanded ? "−" : "+"}
-            </button>
-          </div>
 
           <button
+            ref={menuButtonRef}
             type="button"
-            onClick={
-              onRegenerateChecklist
+            onClick={() =>
+              menuOpen
+                ? setMenuOpen(false)
+                : openMenu()
             }
-            className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+            aria-expanded={menuOpen}
+            aria-label="Control actions"
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-slate-500 hover:bg-slate-100"
           >
-            Regenerate Checklist
+            ☰
           </button>
+
+          {menuOpen && menuPosition
+            ? createPortal(
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() =>
+                      setMenuOpen(false)
+                    }
+                  />
+
+                  <div
+                    style={{
+                      position: "fixed",
+                      top: menuPosition.top,
+                      right:
+                        menuPosition.right,
+                    }}
+                    className="z-50 w-64 rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                  >
+                    <div className="px-3 py-1.5">
+                      <div className="text-xs font-medium text-slate-500">
+                        Stage: {stage}
+                      </div>
+
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
+                          {framework}
+                        </span>
+
+                        <ControlStatusBadge
+                          status={
+                            controlStatus
+                          }
+                        />
+
+                        <ChecklistStatusBadge
+                          status={
+                            checklistStatus
+                          }
+                        />
+
+                        <QaScoreBadge
+                          score={qaScore}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="my-1 border-t border-slate-100" />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onRegenerateChecklist();
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                    >
+                      Regenerate Checklist
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onPrepEmail();
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-blue-700 hover:bg-slate-100"
+                    >
+                      Prep Email
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onShowQuestions();
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-blue-700 hover:bg-slate-100"
+                    >
+                      Show Questions
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onCompleteControl();
+                      }}
+                      disabled={
+                        controlStatus !==
+                          "Ready for Review" &&
+                        controlStatus !==
+                          "Completed"
+                      }
+                      className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                    >
+                      {controlStatus ===
+                      "Completed"
+                        ? "Control Completed"
+                        : "Mark Control Completed"}
+                    </button>
+                  </div>
+                </>,
+                document.body
+              )
+            : null}
         </div>
       </div>
 
@@ -304,6 +514,54 @@ export default function ControlCard({
                 content={evidenceStrategy}
               />
             </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Evidence vs. Data Gap Analysis"
+            description="Where attached evidence and real collected data agree, and what data is still missing to independently back up the evidence."
+            tint="accent"
+            open={
+              openSectionKey ===
+              "evidenceDataGap"
+            }
+            onToggle={() =>
+              toggleSection(
+                "evidenceDataGap"
+              )
+            }
+            headerActions={
+              onRefreshEvidenceDataGapAnalysis ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRefreshEvidenceDataGapAnalysis();
+                  }}
+                  className="rounded-md border border-indigo-300 bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100"
+                >
+                  Refresh
+                </button>
+              ) : undefined
+            }
+          >
+            {evidenceDataGapAnalysis ? (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={
+                  GAP_ANALYSIS_MARKDOWN_COMPONENTS
+                }
+              >
+                {evidenceDataGapAnalysis}
+              </ReactMarkdown>
+            ) : (
+              <p className="text-sm leading-6 text-indigo-800">
+                Not yet analyzed. This fills in
+                once the control has both an
+                attached evidence document and a
+                real data file, or click Refresh
+                to check now.
+              </p>
+            )}
           </CollapsibleSection>
 
           <CollapsibleSection
@@ -774,13 +1032,35 @@ function ChecklistTaskRow({
 
       {task.notes.length > 0 ? (
         <div className="mt-3 space-y-1.5 border-t border-slate-200 pt-3">
-          {task.notes.map((note, index) => (
-            <p
-              key={`${task.id}-note-${index}`}
-              className="rounded-md bg-white px-2.5 py-1.5 text-xs leading-5 text-slate-600"
+          {task.notes.map((note) => (
+            <div
+              key={note.id}
+              className="rounded-md bg-white px-2.5 py-1.5"
             >
-              {note}
-            </p>
+              <p className="mb-0.5 font-mono text-[10px] text-slate-400">
+                {note.id}
+              </p>
+
+              <p
+                className={
+                  note.documentDeleted
+                    ? "text-xs leading-5 text-slate-400 line-through decoration-slate-400"
+                    : "text-xs leading-5 text-slate-600"
+                }
+              >
+                {note.text}
+              </p>
+
+              {note.documentDeleted ? (
+                <p className="mt-0.5 text-[11px] font-medium text-rose-500">
+                  Source document deleted
+                </p>
+              ) : noteSourceLabel(note) ? (
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  {noteSourceLabel(note)}
+                </p>
+              ) : null}
+            </div>
           ))}
         </div>
       ) : null}

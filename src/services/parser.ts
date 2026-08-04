@@ -88,7 +88,15 @@ function parseApplicationCreation(
         applicationMatch[1],
       ),
       controls: extractControls(message).map(
-        (name) => ({ name, framework }),
+        (name) => ({
+          name,
+          framework,
+          // This regex-based parser can't do real standard-control
+          // analysis (only the Claude-driven /api/assistant path can);
+          // leave blank rather than fabricate a mapping.
+          globalControlReference: "",
+          clientContext: "",
+        }),
       ),
     },
   };

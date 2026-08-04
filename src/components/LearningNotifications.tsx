@@ -26,11 +26,30 @@ export type LearningResponse = {
   note?: string;
 };
 
+export type PendingClientReferenceLearning = {
+  id: string;
+  code: string;
+  title: string;
+  status: string;
+  sourceApplicationId: string;
+  sourceControlId: string;
+  sourceControlName: string;
+  sourceQuote: string;
+  createdAt: string;
+  respondedAt: string | null;
+};
+
 type LearningNotificationsProps = {
   learnings: PendingLearning[];
   onRespond: (
     id: string,
     response: LearningResponse
+  ) => void | Promise<void>;
+
+  clientReferenceLearnings?: PendingClientReferenceLearning[];
+  onRespondClientReference?: (
+    id: string,
+    status: "accepted" | "rejected"
   ) => void | Promise<void>;
 };
 
@@ -182,16 +201,116 @@ function LearningCard({
   );
 }
 
+function ClientReferenceLearningCard({
+  learning,
+  onRespond,
+}: {
+  learning: PendingClientReferenceLearning;
+  onRespond: (
+    id: string,
+    status: "accepted" | "rejected"
+  ) => void | Promise<void>;
+}) {
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
+
+  async function respond(
+    status: "accepted" | "rejected"
+  ) {
+    setIsSubmitting(true);
+
+    try {
+      await onRespond(learning.id, status);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="w-96 max-w-[calc(100vw-2rem)] rounded-xl border border-amber-200 bg-white p-4 shadow-lg">
+      <div className="flex items-center justify-between gap-2">
+        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+          New Control Code
+        </span>
+
+        <span className="text-[10px] text-slate-400">
+          from {learning.sourceApplicationId}
+        </span>
+      </div>
+
+      <p className="mt-2 text-sm leading-5 text-slate-700">
+        <span className="font-semibold">
+          {learning.code}
+        </span>{" "}
+        — {learning.title}
+      </p>
+
+      <p className="mt-1 text-xs text-slate-500">
+        On control:{" "}
+        {learning.sourceControlName}
+      </p>
+
+      {learning.sourceQuote ? (
+        <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs italic leading-5 text-slate-600">
+          &quot;{learning.sourceQuote}&quot;
+        </div>
+      ) : null}
+
+      <p className="mt-2 text-xs leading-5 text-slate-500">
+        Accepting adds this to the client control
+        reference table for future matching, and
+        fills it in on the control above.
+      </p>
+
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          disabled={isSubmitting}
+          onClick={() => respond("rejected")}
+          className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Reject
+        </button>
+
+        <button
+          type="button"
+          disabled={isSubmitting}
+          onClick={() => respond("accepted")}
+          className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Accept
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function LearningNotifications({
   learnings,
   onRespond,
+  clientReferenceLearnings = [],
+  onRespondClientReference,
 }: LearningNotificationsProps) {
-  if (learnings.length === 0) {
+  if (
+    learnings.length === 0 &&
+    clientReferenceLearnings.length === 0
+  ) {
     return null;
   }
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex max-h-[80vh] flex-col gap-3 overflow-y-auto">
+      {clientReferenceLearnings.map((learning) => (
+        <ClientReferenceLearningCard
+          key={learning.id}
+          learning={learning}
+          onRespond={
+            onRespondClientReference ??
+            (() => {})
+          }
+        />
+      ))}
+
       {learnings.map((learning) => (
         <LearningCard
           key={learning.id}

@@ -5,14 +5,82 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import ReactMarkdown, {
+  type Components,
+} from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
 import type {
   ApplicationContextInput,
   ApplicationContextStatus,
   ComplianceControl,
+  Note,
   QaScoreLevel,
 } from "@/services/commandEngine";
+
+const ARGOS_MARKDOWN_COMPONENTS: Components = {
+  h2: ({ children }) => (
+    <h5 className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-indigo-300 first:mt-0">
+      {children}
+    </h5>
+  ),
+  h3: ({ children }) => (
+    <h6 className="mb-1 mt-2 text-sm font-semibold text-slate-200">
+      {children}
+    </h6>
+  ),
+  p: ({ children }) => (
+    <p className="mb-2 leading-6 last:mb-0">
+      {children}
+    </p>
+  ),
+  ul: ({ children }) => (
+    <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => (
+    <li className="leading-6">{children}</li>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-semibold text-slate-100">
+      {children}
+    </strong>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-slate-950/70 px-1 py-0.5 font-mono text-xs">
+      {children}
+    </code>
+  ),
+  table: ({ children }) => (
+    <div className="mb-2 overflow-x-auto last:mb-0">
+      <table className="w-full border-collapse text-xs">
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children }) => (
+    <thead className="bg-slate-800">
+      {children}
+    </thead>
+  ),
+  th: ({ children }) => (
+    <th className="border border-slate-700 px-2 py-1 text-left font-semibold">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border border-slate-700 px-2 py-1 align-top">
+      {children}
+    </td>
+  ),
+};
 
 type ApplicationCardProps = {
   applicationName: string;
@@ -34,7 +102,10 @@ type ApplicationCardProps = {
 
   controls: ComplianceControl[];
 
-  notes: string[];
+  evidenceDataGapSummary?: string;
+  onRefreshEvidenceDataGapAnalysis?: () => void;
+
+  notes: Note[];
   onAddNote: (note: string) => void;
 
   expanded: boolean;
@@ -45,10 +116,28 @@ type ApplicationCardProps = {
   ) => void;
 
   onRegenerateAllChecklists: () => void;
+  onPrepEmail: () => void;
+  onShowQuestions: () => void;
+  onOpenAttachments: () => void;
   isProcessing?: boolean;
 
   children?: ReactNode;
 };
+
+export function noteSourceLabel(
+  note: Note
+): string | null {
+  if (!note.sourceDocumentFilename) {
+    return null;
+  }
+
+  const kindLabel =
+    note.sourceKind === "data"
+      ? "data"
+      : "evidence";
+
+  return `Coming from ${kindLabel}: ${note.sourceDocumentFilename}`;
+}
 
 function splitList(value: string): string[] {
   return value
@@ -77,6 +166,9 @@ export default function ApplicationCard({
 
   controls,
 
+  evidenceDataGapSummary = "",
+  onRefreshEvidenceDataGapAnalysis,
+
   notes,
   onAddNote,
 
@@ -85,6 +177,9 @@ export default function ApplicationCard({
   onSaveContext,
 
   onRegenerateAllChecklists,
+  onPrepEmail,
+  onShowQuestions,
+  onOpenAttachments,
   isProcessing = false,
 
   children,
@@ -187,13 +282,13 @@ export default function ApplicationCard({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="flex w-full items-start justify-between gap-4 p-4 text-left transition hover:bg-slate-800/70"
-      >
-        <div className="min-w-0">
+      <div className="flex w-full items-start justify-between gap-4 p-4 transition hover:bg-slate-800/70">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="min-w-0 flex-1 text-left"
+        >
           <h3 className="text-lg font-semibold text-white">
             {applicationName}
           </h3>
@@ -226,12 +321,60 @@ export default function ApplicationCard({
               contextual control analysis.
             </p>
           )}
-        </div>
+        </button>
 
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-600 text-xl text-slate-300">
-          {expanded ? "−" : "+"}
-        </span>
-      </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPrepEmail();
+            }}
+            title="Draft an email-ready summary and open questions covering every control on this application"
+            className="rounded-lg border border-blue-700 bg-blue-950/60 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-blue-900"
+          >
+            Prep Email (All)
+          </button>
+
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onShowQuestions();
+            }}
+            title="Show just the open questions across every control on this application"
+            className="rounded-lg border border-blue-700 bg-blue-950/60 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-blue-900"
+          >
+            Show Questions (All)
+          </button>
+
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenAttachments();
+            }}
+            title="See every evidence and data file attached to this application, and delete any that are no longer valid"
+            className="rounded-lg border border-slate-600 bg-slate-800/60 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+          >
+            Attachments
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            aria-label={
+              expanded
+                ? "Collapse application"
+                : "Expand application"
+            }
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-600 text-xl text-slate-300 hover:bg-slate-800"
+          >
+            {expanded ? "−" : "+"}
+          </button>
+        </div>
+      </div>
 
       {expanded && (
         <div className="space-y-3 border-t border-slate-700 p-4">
@@ -255,6 +398,32 @@ export default function ApplicationCard({
             <ArgosRuleLogicPanel
               controls={controls}
             />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Evidence vs. Data Summary"
+            description="A high-level read across every control -- see each control's own section for the detail behind it."
+            theme="dark"
+            tint="accent"
+            headerActions={
+              onRefreshEvidenceDataGapAnalysis ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRefreshEvidenceDataGapAnalysis();
+                  }}
+                  className="rounded-md border border-indigo-700 bg-indigo-950/60 px-2 py-1 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-900"
+                >
+                  Refresh
+                </button>
+              ) : undefined
+            }
+          >
+            <p className="text-sm leading-6 text-slate-300">
+              {evidenceDataGapSummary ||
+                "Not yet analyzed. This fills in once at least one control has both evidence and real data attached, or click Refresh to check now."}
+            </p>
           </CollapsibleSection>
 
           <CollapsibleSection
@@ -480,13 +649,35 @@ export default function ApplicationCard({
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {notes.map((note, index) => (
-                    <p
-                      key={`app-note-${index}`}
-                      className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-300"
+                  {notes.map((note) => (
+                    <div
+                      key={note.id}
+                      className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2"
                     >
-                      {note}
-                    </p>
+                      <p className="mb-1 font-mono text-[10px] text-slate-600">
+                        {note.id}
+                      </p>
+
+                      <p
+                        className={
+                          note.documentDeleted
+                            ? "text-sm leading-6 text-slate-500 line-through decoration-slate-600"
+                            : "text-sm leading-6 text-slate-300"
+                        }
+                      >
+                        {note.text}
+                      </p>
+
+                      {note.documentDeleted ? (
+                        <p className="mt-1 text-xs font-medium text-rose-400">
+                          Source document deleted
+                        </p>
+                      ) : noteSourceLabel(note) ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          {noteSourceLabel(note)}
+                        </p>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
               )}
@@ -679,10 +870,22 @@ function ArgosRuleLogicPanel({
             {control.name}
           </span>
 
-          <p className="mt-2 text-sm leading-6 text-slate-300">
-            {control.argosObjective ||
-              "Not yet defined."}
-          </p>
+          {control.argosObjective ? (
+            <div className="mt-2 text-sm text-slate-300">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={
+                  ARGOS_MARKDOWN_COMPONENTS
+                }
+              >
+                {control.argosObjective}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Not yet defined.
+            </p>
+          )}
         </div>
       ))}
     </div>

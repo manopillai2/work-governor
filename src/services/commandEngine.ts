@@ -74,13 +74,37 @@ export type NoteMode =
   | "REPLACE"
   | "CLEAR";
 
+// "manual" covers everything typed directly or authored by the
+// assistant in ordinary conversation; "evidence"/"data" mark notes
+// traced back to an uploaded attachment (see EvidenceUploadModal).
+export type NoteSourceKind =
+  | "manual"
+  | "evidence"
+  | "data";
+
+export interface Note {
+  id: string;
+  text: string;
+  sourceKind: NoteSourceKind;
+  // Present only when sourceKind is "evidence" or "data".
+  sourceDocumentId?: string;
+  // Denormalized so the filename still displays after the source
+  // document itself is deleted.
+  sourceDocumentFilename?: string;
+  // Set when the source document has been deleted -- the note text
+  // is kept for audit history, the UI strikes it through and labels
+  // it rather than removing it.
+  documentDeleted?: boolean;
+  createdAt: string;
+}
+
 export interface ChecklistTask {
   id: string;
   text: string;
   category: TaskCategory;
   completed: boolean;
   required: boolean;
-  notes: string[];
+  notes: Note[];
   learningId?: string;
   irrelevant?: boolean;
   irrelevantReason?: string;
@@ -123,7 +147,25 @@ export interface ComplianceControl {
   evidenceStrategy: string;
   argosObjective: string;
 
-  notes: string[];
+  // The globally recognized standard control name/number (for example
+  // an ITGC domain under SOX) that this control's org-local name maps
+  // to. Analyzed once at creation time; unaffected by regeneration.
+  globalControlReference: string;
+
+  // The matching entry from the fixed client control-code reference
+  // table, set only when the user's own chat message referenced it.
+  clientContext: string;
+
+  // AI-written comparison of this control's evidence-sourced notes
+  // against its data-sourced notes: where they overlap, where data is
+  // missing to substantiate a piece of evidence (e.g. a screenshot
+  // with no underlying export to back it up), and what real data
+  // would be worth collecting next to build Argos rule logic.
+  // Refreshed whenever an evidence/data upload is processed for this
+  // control, or on demand via UPDATE_EVIDENCE_DATA_GAP_ANALYSIS.
+  evidenceDataGapAnalysis: string;
+
+  notes: Note[];
   nextTasks: ChecklistTask[];
 
   checklistChangeLog: ChecklistChangeLogEntry[];
@@ -157,7 +199,13 @@ export interface Application {
 
   contextStatus: ApplicationContextStatus;
 
-  notes: string[];
+  // Short, high-level AI-written summary of how evidence and real
+  // data differ across this application's controls -- a one-glance
+  // view, not a per-control breakdown (see ComplianceControl's
+  // evidenceDataGapAnalysis for that).
+  evidenceDataGapSummary: string;
+
+  notes: Note[];
 
   controls: ComplianceControl[];
 }
@@ -199,7 +247,23 @@ export interface MeetingResponseControlUpdate {
   progressSummary?: string;
   qaScore?: QaScoreLevel;
   qaScoreRationale?: string;
+  // Only populated when this update came from an evidence/data upload
+  // and the control now has notes from both sources -- see
+  // ComplianceControl.evidenceDataGapAnalysis.
+  evidenceDataGapAnalysis?: string;
 }
+
+// A candidate addition to the fixed client control-code reference
+// table, surfaced only when the user's own message contained a
+// code/description not already in that table. Rides along on the
+// command purely as learning-analysis metadata -- it does not affect
+// state mutation, only what triggerLearningAnalysis proposes for
+// approval afterward.
+export type ProposedClientReference = {
+  code: string;
+  title: string;
+  sourceQuote: string;
+};
 
 export type Command =
   | {
@@ -210,6 +274,9 @@ export type Command =
         controls: Array<{
           name: string;
           framework: Framework;
+          globalControlReference: string;
+          clientContext: string;
+          proposedClientReference?: ProposedClientReference | null;
           tasks?: ChecklistTaskInput[];
         }>;
         context?: ApplicationContextInput;
@@ -242,6 +309,9 @@ export type Command =
         applicabilityRationale?: string;
         evidenceStrategy?: string;
         argosObjective?: string;
+        globalControlReference?: string;
+        clientContext?: string;
+        proposedClientReference?: ProposedClientReference | null;
 
         tasks?: ChecklistTaskInput[];
       };
@@ -415,6 +485,22 @@ export type Command =
         controlUpdates: MeetingResponseControlUpdate[];
         unmatchedNotes?: string[];
         message?: string;
+        // Only populated when this reply was an evidence/data upload
+        // and the application now has evidence and data on file
+        // somewhere across its controls -- see
+        // Application.evidenceDataGapSummary.
+        applicationEvidenceDataGapSummary?: string;
+      };
+    }
+  | {
+      action: "UPDATE_EVIDENCE_DATA_GAP_ANALYSIS";
+      payload: {
+        application: string;
+        applicationEvidenceDataGapSummary?: string;
+        controlUpdates: Array<{
+          control: string;
+          evidenceDataGapAnalysis: string;
+        }>;
       };
     }
   | {
@@ -452,6 +538,126 @@ function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+}
+
+export type NoteSource = {
+  // Shared by every note created during this one command execution --
+  // a single evidence/data upload is always entirely one kind.
+  kind: NoteSourceKind;
+  // filename -> documentId for every file in this upload batch, so a
+  // per-note [Attachment: <filename>] tag (see the assistant's
+  // prompt) can be resolved to a real document without the model
+  // ever needing to know document ids.
+  documentsByFilename: Record<string, string>;
+};
+
+// Matches the exact tag format the assistant is instructed to append
+// to a note when it draws on an attached document, e.g.
+// "...12 characters. [Attachment: policy.docx]". Stripped from the
+// stored note text; the filename is resolved to a real document id
+// and kept as structured metadata instead, so the UI can render its
+// own "(coming from evidence: policy.docx)" label and know which
+// document to strike this note against if that document is deleted.
+const ATTACHMENT_TAG_PATTERN =
+  /\s*\[Attachment:\s*([^\]]+)\]/gi;
+
+export function createNote(
+  rawText: string,
+  source?: NoteSource
+): Note {
+  if (!source) {
+    return {
+      id: createId("note"),
+      text: rawText,
+      sourceKind: "manual",
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  const matchedFilenames: string[] = [];
+
+  const strippedText = rawText
+    .replace(
+      ATTACHMENT_TAG_PATTERN,
+      (_match, filename: string) => {
+        matchedFilenames.push(
+          filename.trim()
+        );
+        return "";
+      }
+    )
+    .trim();
+
+  // Only the first recognized filename becomes the structured link --
+  // a note spanning multiple documents still displays fine, it just
+  // isn't struck by every one of those documents' individual deletion.
+  const resolvedFilename =
+    matchedFilenames.find(
+      (filename) =>
+        source.documentsByFilename[filename]
+    );
+
+  return {
+    id: createId("note"),
+    text: strippedText || rawText,
+    sourceKind: source.kind,
+    sourceDocumentId: resolvedFilename
+      ? source.documentsByFilename[
+          resolvedFilename
+        ]
+      : undefined,
+    sourceDocumentFilename: resolvedFilename,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+// Persisted state from before notes had structure was plain
+// string[]. Upgrades any lingering plain strings to real Note objects
+// on read so old data doesn't break -- never invents source
+// information for them, they just become ordinary manual notes.
+export function normalizeNotes(
+  notes: unknown
+): Note[] {
+  if (!Array.isArray(notes)) {
+    return [];
+  }
+
+  return notes
+    .map((note): Note | null => {
+      if (typeof note === "string") {
+        const text = note.trim();
+        return text ? createNote(text) : null;
+      }
+
+      if (
+        note &&
+        typeof note === "object" &&
+        typeof (note as Note).text === "string"
+      ) {
+        const candidate = note as Partial<Note>;
+
+        return {
+          id: candidate.id || createId("note"),
+          text: candidate.text ?? "",
+          sourceKind:
+            candidate.sourceKind ?? "manual",
+          sourceDocumentId:
+            candidate.sourceDocumentId,
+          sourceDocumentFilename:
+            candidate.sourceDocumentFilename,
+          documentDeleted:
+            candidate.documentDeleted,
+          createdAt:
+            candidate.createdAt ??
+            new Date().toISOString(),
+        };
+      }
+
+      return null;
+    })
+    .filter(
+      (note): note is Note => note !== null
+    );
 }
 
 export function normalizeApplicationId(
@@ -820,11 +1026,7 @@ function cleanChecklistTasks(
           inferTaskCategory(text),
         completed: task.completed === true,
         required: task.required !== false,
-        notes: Array.isArray(task.notes)
-          ? task.notes
-              .map((note) => String(note ?? "").trim())
-              .filter(Boolean)
-          : [],
+        notes: normalizeNotes(task.notes),
         learningId: task.learningId,
         irrelevant: task.irrelevant === true,
         irrelevantReason: task.irrelevantReason,
@@ -952,12 +1154,15 @@ function computeControlRegenerationSignature(
 ): string {
   // Keyed by normalized task text rather than task id -- ids can
   // change across a merge/regeneration, but the wording a note was
-  // recorded against is the thing that actually matters here.
+  // recorded against is the thing that actually matters here. Note
+  // id/createdAt are deliberately excluded (stable across reads but
+  // not meaningful to whether regeneration is warranted); a note's
+  // documentDeleted flag flipping IS meaningful, so it's included.
   const allTaskNotes = control.nextTasks
     .flatMap((task) =>
       task.notes.map(
         (note) =>
-          `${normalizeText(task.text)}::${note}`
+          `${normalizeText(task.text)}::${note.text}::deleted=${Boolean(note.documentDeleted)}`
       )
     )
     .sort();
@@ -972,8 +1177,14 @@ function computeControlRegenerationSignature(
     )
     .sort();
 
+  const controlNotesForSignature =
+    control.notes.map(
+      (note) =>
+        `${note.text}::deleted=${Boolean(note.documentDeleted)}`
+    );
+
   return JSON.stringify({
-    controlNotes: control.notes,
+    controlNotes: controlNotesForSignature,
     allTaskNotes,
     irrelevantMarkers,
     hosting: application.hosting,
@@ -993,18 +1204,23 @@ function computeControlRegenerationSignature(
       application.dataClassification,
     financialRelevance:
       application.financialRelevance,
-    applicationNotes: application.notes,
+    applicationNotes: application.notes.map(
+      (note) =>
+        `${note.text}::deleted=${Boolean(note.documentDeleted)}`
+    ),
   });
 }
 
 function applyNoteUpdate(
-  existingNotes: string[],
+  existingNotes: Note[],
   mode: NoteMode,
-  requestedNotes: string[]
-): string[] {
+  requestedNotes: string[],
+  source?: NoteSource
+): Note[] {
   const cleanedNotes = requestedNotes
     .map((note) => String(note ?? "").trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((text) => createNote(text, source));
 
   if (mode === "CLEAR") {
     return [];
@@ -1165,9 +1381,9 @@ export function refreshControlState(
       control.evidenceStrategy || "",
     argosObjective:
       control.argosObjective || "",
-    notes: Array.isArray(control.notes)
-      ? control.notes
-      : [],
+    evidenceDataGapAnalysis:
+      control.evidenceDataGapAnalysis || "",
+    notes: normalizeNotes(control.notes),
     nextTasks: cleanChecklistTasks(
       Array.isArray(control.nextTasks)
         ? control.nextTasks
@@ -1324,7 +1540,7 @@ export function addApplicationNote(
     ...application,
     notes: [
       ...application.notes,
-      trimmedNote,
+      createNote(trimmedNote),
     ],
   };
 }
@@ -1595,7 +1811,9 @@ function generateDefaultTasks(
 function createControl(
   name: string,
   framework: Framework,
-  application: Application
+  application: Application,
+  globalControlReference?: string,
+  clientContext?: string
 ): ComplianceControl {
   const knowledge =
     getDefaultControlKnowledge(name);
@@ -1612,6 +1830,13 @@ function createControl(
     checklistStatus: "Review Pending",
 
     ...knowledge,
+
+    globalControlReference:
+      globalControlReference || "",
+
+    clientContext: clientContext || "",
+
+    evidenceDataGapAnalysis: "",
 
     notes: [],
     nextTasks: generateDefaultTasks(
@@ -1675,6 +1900,7 @@ function createEmptyApplication(
       context?.financialRelevance?.trim() || "",
 
     contextStatus: "Missing",
+    evidenceDataGapSummary: "",
     notes: [],
     controls: [],
   };
@@ -1761,7 +1987,8 @@ export function updateApplicationContextValues(
 
 function applyMeetingResponseControlUpdate(
   control: ComplianceControl,
-  update: MeetingResponseControlUpdate
+  update: MeetingResponseControlUpdate,
+  noteSource?: NoteSource
 ): {
   control: ComplianceControl;
   unmatchedTaskTexts: string[];
@@ -1796,7 +2023,13 @@ function applyMeetingResponseControlUpdate(
       task.id === targetTask.id
         ? {
             ...task,
-            notes: [...task.notes, noteText],
+            notes: [
+              ...task.notes,
+              createNote(
+                noteText,
+                noteSource
+              ),
+            ],
           }
         : task
     );
@@ -1874,6 +2107,9 @@ function applyMeetingResponseControlUpdate(
       qaScoreRationale:
         update.qaScoreRationale ??
         control.qaScoreRationale,
+      evidenceDataGapAnalysis:
+        update.evidenceDataGapAnalysis ??
+        control.evidenceDataGapAnalysis,
     }),
     unmatchedTaskTexts,
   };
@@ -1881,7 +2117,8 @@ function applyMeetingResponseControlUpdate(
 
 export function executeCommand(
   command: Command,
-  currentApplications: Application[]
+  currentApplications: Application[],
+  noteSource?: NoteSource
 ): CommandResult {
   if (command.action === "RESPOND_ONLY") {
     return {
@@ -2090,7 +2327,9 @@ export function executeCommand(
           const defaultControl = createControl(
             controlInput.name,
             controlInput.framework || "SOX",
-            baseApplication
+            baseApplication,
+            controlInput.globalControlReference,
+            controlInput.clientContext
           );
 
           return controlInput.tasks &&
@@ -2302,7 +2541,9 @@ export function executeCommand(
       createControl(
         controlName,
         command.payload.framework || "SOX",
-        application
+        application,
+        command.payload.globalControlReference,
+        command.payload.clientContext
       );
 
     const newControl =
@@ -3021,7 +3262,10 @@ export function executeCommand(
                           command.payload.note
                             ? [
                                 ...currentControl.notes,
-                                command.payload.note.trim(),
+                                createNote(
+                                  command.payload.note.trim(),
+                                  noteSource
+                                ),
                               ]
                             : currentControl.notes,
 
@@ -3088,7 +3332,8 @@ export function executeCommand(
                               currentControl.notes,
                               command.payload.mode,
                               command.payload.notes ||
-                                []
+                                [],
+                              noteSource
                             ),
                           })
                         : currentControl
@@ -3198,6 +3443,13 @@ export function executeCommand(
       };
     }
 
+    if (!command.payload.taskText.trim()) {
+      return {
+        applications: currentApplications,
+        message: `No specific checklist item was identified on ${control.name}. If this note answers more than one item, ask to process it as an application team reply instead so every item gets its own note.`,
+      };
+    }
+
     const targetTask = findChecklistTask(
       control.nextTasks,
       command.payload.taskText
@@ -3220,7 +3472,13 @@ export function executeCommand(
           ? {
               ...task,
               notes: noteText
-                ? [...task.notes, noteText]
+                ? [
+                    ...task.notes,
+                    createNote(
+                      noteText,
+                      noteSource
+                    ),
+                  ]
                 : task.notes,
             }
           : task
@@ -3444,7 +3702,8 @@ export function executeCommand(
             } =
               applyMeetingResponseControlUpdate(
                 targetControl,
-                update
+                update,
+                noteSource
               );
 
             controlsById.set(
@@ -3475,6 +3734,10 @@ export function executeCommand(
 
           return {
             ...applicationWithContext,
+            evidenceDataGapSummary:
+              command.payload
+                .applicationEvidenceDataGapSummary ??
+              applicationWithContext.evidenceDataGapSummary,
             controls:
               applicationWithContext.controls.map(
                 (control) =>
@@ -3486,7 +3749,13 @@ export function executeCommand(
               unmatchedNotes.length > 0
                 ? [
                     ...applicationWithContext.notes,
-                    ...unmatchedNotes,
+                    ...unmatchedNotes.map(
+                      (text) =>
+                        createNote(
+                          text,
+                          noteSource
+                        )
+                    ),
                   ]
                 : applicationWithContext.notes,
           };
@@ -3518,6 +3787,121 @@ export function executeCommand(
       message:
         messageParts.join(" ") ||
         "No matching checklist items or controls were found for this reply.",
+    };
+  }
+
+  if (
+    command.action ===
+    "UPDATE_EVIDENCE_DATA_GAP_ANALYSIS"
+  ) {
+    const applicationId =
+      normalizeApplicationId(
+        command.payload.application
+      );
+
+    const application = findApplication(
+      currentApplications,
+      applicationId
+    );
+
+    if (!application) {
+      return {
+        applications: currentApplications,
+        message: `${applicationId} was not found.`,
+      };
+    }
+
+    const controlUpdates =
+      command.payload.controlUpdates ?? [];
+
+    const updatedControlNames: string[] = [];
+    const notFoundControlNames: string[] = [];
+
+    const updatedApplications =
+      currentApplications.map(
+        (currentApplication) => {
+          if (
+            currentApplication.id !==
+            application.id
+          ) {
+            return currentApplication;
+          }
+
+          const controlsById = new Map(
+            currentApplication.controls.map(
+              (control) => [
+                control.id,
+                control,
+              ]
+            )
+          );
+
+          for (const update of controlUpdates) {
+            const targetControl = findControl(
+              Array.from(
+                controlsById.values()
+              ),
+              update.control
+            );
+
+            if (!targetControl) {
+              notFoundControlNames.push(
+                update.control
+              );
+
+              continue;
+            }
+
+            controlsById.set(
+              targetControl.id,
+              {
+                ...targetControl,
+                evidenceDataGapAnalysis:
+                  update.evidenceDataGapAnalysis,
+              }
+            );
+
+            updatedControlNames.push(
+              targetControl.name
+            );
+          }
+
+          return {
+            ...currentApplication,
+            evidenceDataGapSummary:
+              command.payload
+                .applicationEvidenceDataGapSummary ??
+              currentApplication.evidenceDataGapSummary,
+            controls:
+              currentApplication.controls.map(
+                (control) =>
+                  controlsById.get(
+                    control.id
+                  ) ?? control
+              ),
+          };
+        }
+      );
+
+    const messageParts: string[] = [];
+
+    if (updatedControlNames.length > 0) {
+      messageParts.push(
+        `Evidence-vs-data gap analysis refreshed for ${updatedControlNames.join(", ")}.`
+      );
+    }
+
+    if (notFoundControlNames.length > 0) {
+      messageParts.push(
+        `Could not match these controls: ${notFoundControlNames.join(", ")}.`
+      );
+    }
+
+    return {
+      applications: updatedApplications,
+      message:
+        messageParts.join(" ") ||
+        "No matching controls were found for this analysis.",
     };
   }
 

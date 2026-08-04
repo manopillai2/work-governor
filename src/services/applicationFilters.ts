@@ -10,6 +10,7 @@ export type ApplicationFilterState = {
   applicationIds: string[];
   frameworks: Framework[];
   statuses: ControlStatus[];
+  clientCodes: string[];
 };
 
 export const EMPTY_APPLICATION_FILTERS: ApplicationFilterState =
@@ -18,6 +19,7 @@ export const EMPTY_APPLICATION_FILTERS: ApplicationFilterState =
     applicationIds: [],
     frameworks: [],
     statuses: [],
+    clientCodes: [],
   };
 
 export function hasActiveFilters(
@@ -27,8 +29,17 @@ export function hasActiveFilters(
     filters.search.trim().length > 0 ||
     filters.applicationIds.length > 0 ||
     filters.frameworks.length > 0 ||
-    filters.statuses.length > 0
+    filters.statuses.length > 0 ||
+    filters.clientCodes.length > 0
   );
+}
+
+// control.clientContext is stored as "CODE - Title" (see
+// formatClientReferenceEntry); the filter only cares about the code.
+function controlClientCode(
+  control: ComplianceControl
+): string {
+  return control.clientContext.split(" - ")[0].trim();
 }
 
 function textMatches(
@@ -60,8 +71,13 @@ function controlTextMatches(
     textMatches(control.applicabilityRationale, needle) ||
     textMatches(control.evidenceStrategy, needle) ||
     textMatches(control.argosObjective, needle) ||
+    textMatches(
+      control.globalControlReference,
+      needle
+    ) ||
+    textMatches(control.clientContext, needle) ||
     control.notes.some((note) =>
-      textMatches(note, needle)
+      textMatches(note.text, needle)
     )
   );
 }
@@ -78,7 +94,13 @@ function controlMatchesFacets(
     filters.statuses.length === 0 ||
     filters.statuses.includes(control.controlStatus);
 
-  return frameworkOk && statusOk;
+  const clientCodeOk =
+    filters.clientCodes.length === 0 ||
+    filters.clientCodes.includes(
+      controlClientCode(control)
+    );
+
+  return frameworkOk && statusOk && clientCodeOk;
 }
 
 export function filterApplications(
@@ -89,7 +111,8 @@ export function filterApplications(
 
   const hasFacetFilters =
     filters.frameworks.length > 0 ||
-    filters.statuses.length > 0;
+    filters.statuses.length > 0 ||
+    filters.clientCodes.length > 0;
 
   return applications.reduce<Application[]>(
     (result, application) => {
