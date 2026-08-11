@@ -41,6 +41,11 @@ export const applications = pgTable("applications", {
   // differ across this application's controls -- see the matching field
   // on controls for the per-control detail.
   evidenceDataGapSummary: text("evidence_data_gap_summary").notNull().default(""),
+  // True once a document behind evidenceDataGapSummary (or any
+  // control's analysis) has been deleted -- cleared on refresh.
+  evidenceDataGapSummaryStale: boolean("evidence_data_gap_summary_stale")
+    .notNull()
+    .default(false),
 
   notes: jsonb("notes").$type<Note[]>().notNull().default([]),
 
@@ -91,6 +96,13 @@ export const controls = pgTable("controls", {
   evidenceDataGapAnalysis: text("evidence_data_gap_analysis")
     .notNull()
     .default(""),
+  // True once a document behind this analysis has been deleted --
+  // cleared on refresh.
+  evidenceDataGapAnalysisStale: boolean(
+    "evidence_data_gap_analysis_stale"
+  )
+    .notNull()
+    .default(false),
 
   notes: jsonb("notes").$type<Note[]>().notNull().default([]),
   nextTasks: jsonb("next_tasks").$type<ChecklistTask[]>().notNull().default([]),

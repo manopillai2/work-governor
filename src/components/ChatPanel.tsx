@@ -2,10 +2,12 @@
 
 import {
   FormEvent,
+  memo,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type RefObject,
 } from "react";
 import ReactMarkdown, {
   type Components,
@@ -429,6 +431,117 @@ function MeetingPrepEmailAttachment({
   );
 }
 
+// Split out and memoized so typing in the input below (which lives in
+// ChatPanel's own state) doesn't force every message to re-render and
+// re-parse its Markdown on every keystroke -- with a long chat
+// history that was the actual cause of visible input lag. This only
+// re-renders when messages/assistantMessage themselves change.
+const ChatMessageList = memo(
+  function ChatMessageList({
+    messages,
+    assistantMessage,
+    messagesEndRef,
+  }: {
+    messages: ChatMessage[];
+    assistantMessage?: string;
+    messagesEndRef: RefObject<HTMLDivElement | null>;
+  }) {
+    return (
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        {messages.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950/40 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Example
+            </p>
+
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Create APP-18 with eight well-known
+              SOX controls. It is on-prem.
+            </p>
+          </div>
+        ) : (
+          messages.map((message) => {
+            const isUser =
+              message.role === "user";
+
+            return (
+              <div
+                key={message.id}
+                className={
+                  isUser
+                    ? "ml-8 rounded-xl rounded-br-sm bg-blue-600 px-4 py-3 text-sm text-white"
+                    : "mr-8 rounded-xl rounded-bl-sm border border-slate-700/70 bg-slate-800 px-4 py-3 text-sm text-slate-100"
+                }
+              >
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-65">
+                  {isUser
+                    ? "You"
+                    : "Control Governor"}
+                </p>
+
+                {isUser ? (
+                  <p className="whitespace-pre-wrap break-words leading-6">
+                    {message.content}
+                  </p>
+                ) : (
+                  <div className="break-words leading-6">
+                    <ReactMarkdown
+                      remarkPlugins={[
+                        remarkGfm,
+                      ]}
+                      components={
+                        MARKDOWN_COMPONENTS
+                      }
+                    >
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                )}
+
+                {message.attachment?.type ===
+                "meeting-prep-email" ? (
+                  <MeetingPrepEmailAttachment
+                    attachment={
+                      message.attachment
+                    }
+                  />
+                ) : null}
+
+                {message.attachment?.type ===
+                "open-questions" ? (
+                  <OpenQuestionsAttachment
+                    attachment={
+                      message.attachment
+                    }
+                  />
+                ) : null}
+              </div>
+            );
+          })
+        )}
+
+        {assistantMessage ? (
+          <div className="mr-8 rounded-xl rounded-bl-sm border border-slate-700/70 bg-slate-800 px-4 py-3 text-sm text-slate-300">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-65">
+              Control Governor
+            </p>
+
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+
+              <p className="leading-6">
+                {assistantMessage}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <div ref={messagesEndRef} />
+      </div>
+    );
+  }
+);
+
 export default function ChatPanel({
   messages,
   onSend,
@@ -544,7 +657,7 @@ export default function ChatPanel({
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-white">
-              Work Governor
+              Control Governor
             </h2>
 
             <p className="mt-0.5 text-xs leading-5 text-slate-400">
@@ -558,97 +671,11 @@ export default function ChatPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {messages.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Example
-            </p>
-
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Create APP-18 with eight well-known
-              SOX controls. It is on-prem.
-            </p>
-          </div>
-        ) : (
-          messages.map((message) => {
-            const isUser =
-              message.role === "user";
-
-            return (
-              <div
-                key={message.id}
-                className={
-                  isUser
-                    ? "ml-8 rounded-xl rounded-br-sm bg-blue-600 px-4 py-3 text-sm text-white"
-                    : "mr-8 rounded-xl rounded-bl-sm border border-slate-700/70 bg-slate-800 px-4 py-3 text-sm text-slate-100"
-                }
-              >
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-65">
-                  {isUser
-                    ? "You"
-                    : "Work Governor"}
-                </p>
-
-                {isUser ? (
-                  <p className="whitespace-pre-wrap break-words leading-6">
-                    {message.content}
-                  </p>
-                ) : (
-                  <div className="break-words leading-6">
-                    <ReactMarkdown
-                      remarkPlugins={[
-                        remarkGfm,
-                      ]}
-                      components={
-                        MARKDOWN_COMPONENTS
-                      }
-                    >
-                      {message.content}
-                    </ReactMarkdown>
-                  </div>
-                )}
-
-                {message.attachment?.type ===
-                "meeting-prep-email" ? (
-                  <MeetingPrepEmailAttachment
-                    attachment={
-                      message.attachment
-                    }
-                  />
-                ) : null}
-
-                {message.attachment?.type ===
-                "open-questions" ? (
-                  <OpenQuestionsAttachment
-                    attachment={
-                      message.attachment
-                    }
-                  />
-                ) : null}
-              </div>
-            );
-          })
-        )}
-
-        {assistantMessage ? (
-          <div className="mr-8 rounded-xl rounded-bl-sm border border-slate-700/70 bg-slate-800 px-4 py-3 text-sm text-slate-300">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-65">
-              Work Governor
-            </p>
-
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
-
-              <p className="leading-6">
-                {assistantMessage}
-              </p>
-            </div>
-          </div>
-        ) : null}
-
-        <div ref={messagesEndRef} />
-      </div>
+      <ChatMessageList
+        messages={messages}
+        assistantMessage={assistantMessage}
+        messagesEndRef={messagesEndRef}
+      />
 
       <form
         onSubmit={handleSubmit}
@@ -795,7 +822,7 @@ export default function ChatPanel({
           onBlur={() => {
             tabHeldRef.current = false;
           }}
-          placeholder="Enter a Work Governor update..."
+          placeholder="Enter a Control Governor update..."
           rows={3}
           disabled={isProcessing}
           className="w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-5 text-white outline-none placeholder:text-slate-500 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"

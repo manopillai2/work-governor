@@ -387,7 +387,7 @@ function summarizeConversation(
         `${
           item.role === "user"
             ? "User"
-            : "Work Governor"
+            : "Control Governor"
         }: ${String(
           item.content ?? ""
         ).trim()}`
@@ -702,9 +702,9 @@ export async function POST(
         max_tokens: 16000,
 
         system: `
-You are the command interpreter and contextual compliance advisor for Work Governor.
+You are the command interpreter and contextual compliance advisor for Control Governor.
 
-Work Governor is Manoj's personal application-control and Argos-readiness assistant.
+Control Governor is Manoj's personal application-control and Argos-readiness assistant.
 
 CURRENT DATE
 
@@ -906,7 +906,7 @@ EVIDENCE VS. DATA GAP ANALYSIS
 
 Every note carries a source tag: [Source: Evidence - filename],
 [Source: Data - filename], or no tag at all for a manually typed note
-(see Work Notes / Notes against this item in CURRENT WORK GOVERNOR
+(see Work Notes / Notes against this item in CURRENT CONTROL GOVERNOR
 DATA, and the STORED EVIDENCE ARCHIVE entries, each labeled [Evidence]
 or [Data]). "Evidence" is something like a workpaper, policy document,
 or screenshot -- it shows what the application team says or displays.
@@ -960,13 +960,42 @@ something actually present (or actually absent) in the notes/archive,
 not a fabricated guess.
 
 When you write evidenceDataGapAnalysis for at least one control this
-turn, also set payload.applicationEvidenceDataGapSummary: one or two
-sentences, application-wide, at a much higher level than the
-per-control analysis -- e.g. "Evidence is well covered across most
-controls, but real data has only been collected for CMDB Review;
-Password Management and Access Recertification currently rely on
-evidence alone." Base it on the state of every control on the
-application, not just the one(s) this upload touched.
+turn, also set payload.applicationEvidenceDataGapSummary. Like
+evidenceDataGapAnalysis, this is always a single Markdown string --
+literal "## " headings and "- " bullets inside one string value, the
+exact same shape as evidenceDataGapAnalysis. Never restructure it into
+a JSON object with keys like overview/backedByData -- the schema
+requires a plain string and a JSON object there will be rejected. This
+is a glance-level rollup -- someone should be able to read the whole
+thing in under 10 seconds. Markdown, headings plus bullets:
+
+## Overview
+1 bullet, one clause, nothing more -- e.g. "Evidence is well covered
+across most controls; real data has only been collected for 2 of 7."
+
+## Backed by Data
+One bullet per control that has real data behind its evidence, in
+exactly this shape: "**<control name>** -- <2-4 word topic>." Nothing
+else on the line.
+
+## Evidence Only -- Data Still Needed
+One bullet per control that currently relies on evidence alone, same
+shape: "**<control name>** -- <2-4 word topic>."
+
+Worked example, exact target density (do not exceed this per bullet):
+"- **Review Account Password Management** -- account & password data
+confirmed."
+"- **Review CMDB Asset Inventory System** -- no CMDB export yet."
+
+Banned from this summary, even in passing: record counts, percentages,
+filenames, field names, table/object names, API names, dates, and
+anything spanning more than one sentence per bullet. All of that is
+exactly what evidenceDataGapAnalysis on the individual control is for
+-- if you're about to name a specific number or system, stop and
+generalize it instead. Omit "Backed by Data" or "Evidence Only"
+entirely if no control qualifies for it. Base this on the state of
+every control on the application, not just the one(s) this upload
+touched.
 
 The user can also ask you directly to analyze or refresh this (e.g.
 "analyze the evidence vs data gap for X" or "refresh the evidence vs
@@ -1084,7 +1113,7 @@ RESPOND_ONLY claiming the checklist was "already regenerated" based on
 the recent conversation history. A prior assistant message describing
 a regeneration is not proof the control's checklist is populated now;
 the only source of truth is the control's actual current checklist
-shown in CURRENT WORK GOVERNOR DATA. If that checklist is empty or
+shown in CURRENT CONTROL GOVERNOR DATA. If that checklist is empty or
 clearly incomplete when the user asks to regenerate, always treat this
 as a fresh regeneration request and produce a full tasks list, even if
 you or the user discussed regenerating it earlier in this conversation.
@@ -1100,7 +1129,7 @@ re-evaluate the checklist from scratch using every one of these, not
 just re-apply the previous checklist:
 
 1. Every note recorded against individual checklist items and against
-   the control itself (shown per control in CURRENT WORK GOVERNOR DATA)
+   the control itself (shown per control in CURRENT CONTROL GOVERNOR DATA)
    -- these often reveal that the checklist needs to change.
 2. The application's CURRENT context fields and Application-Level
    Notes. The user's original understanding of the application may
@@ -1113,7 +1142,7 @@ just re-apply the previous checklist:
    accepted since the checklist was last generated.
 
 Items already marked irrelevant (shown with a "[Marked Irrelevant]"
-tag in CURRENT WORK GOVERNOR DATA) should generally stay marked
+tag in CURRENT CONTROL GOVERNOR DATA) should generally stay marked
 irrelevant on regeneration unless the notes or context changes give a
 concrete reason they're relevant again -- do not silently un-mark them.
 
@@ -1743,7 +1772,7 @@ payload.controlUpdates: one entry per control the reply provides
 information for. For each entry:
 
 - control is the existing control's name, exactly as shown in CURRENT
-  WORK GOVERNOR DATA. Never invent a control that does not exist.
+  CONTROL GOVERNOR DATA. Never invent a control that does not exist.
 - taskNotes is one entry per checklist item the reply answers on that
   control: taskText must match an existing checklist item's exact
   text for that control, and note is a grammatically corrected
@@ -1847,7 +1876,7 @@ hosting, and so on). That sparse email is itself the correct,
 complete answer -- it is never a reason to stop and ask the user what
 to do instead.
 
-Build payload.email from CURRENT WORK GOVERNOR DATA for that
+Build payload.email from CURRENT CONTROL GOVERNOR DATA for that
 application only. Never invent facts the data does not contain --
 anything unknown becomes an open question instead.
 
@@ -1910,7 +1939,7 @@ team, and keep the top five to eight; drop the rest rather than
 padding the list.
 
 For each topic, ask at the right depth for what is already known,
-never re-asking something CURRENT WORK GOVERNOR DATA already answers.
+never re-asking something CURRENT CONTROL GOVERNOR DATA already answers.
 A topic has layers (broad category, then specific detail, then
 operational specifics), and a topic only gets dropped from
 openQuestions when every layer that a reasonable person would still
@@ -1946,7 +1975,7 @@ a real fact about this specific application) that shows the level of
 detail and the format expected, so the team knows how to answer well.
 
 Every question must also include relatedControls: the exact name of
-every control (as shown in CURRENT WORK GOVERNOR DATA) whose gap this
+every control (as shown in CURRENT CONTROL GOVERNOR DATA) whose gap this
 question addresses. Because questions are merged across controls
 whenever they share the same underlying topic, most questions will
 list more than one control -- for example, a single hosting question
@@ -2059,7 +2088,7 @@ request, full stop -- it does not matter how little is known about
 the application. Do not hedge, do not ask permission, do not
 describe the email without attaching it: attach it.
 
-Return exactly one execute_work_governor_command tool call.
+Return exactly one execute_control_governor_command tool call.
 
 Do not return ordinary prose outside the tool call.
 `,
@@ -2078,7 +2107,7 @@ STORED EVIDENCE ARCHIVE
 
 ${evidenceArchiveText}
 
-CURRENT WORK GOVERNOR DATA
+CURRENT CONTROL GOVERNOR DATA
 
 ${summarizeApplications(
   applications
@@ -2098,10 +2127,10 @@ ${message}
         tools: [
           {
             name:
-              "execute_work_governor_command",
+              "execute_control_governor_command",
 
             description:
-              "Execute one structured Work Governor command using the permanent assignment objective and current application context.",
+              "Execute one structured Control Governor command using the permanent assignment objective and current application context.",
 
             input_schema: {
               type: "object",
@@ -3065,7 +3094,7 @@ ${message}
           type: "tool",
 
           name:
-            "execute_work_governor_command",
+            "execute_control_governor_command",
         },
       });
 
@@ -3080,7 +3109,7 @@ ${message}
         (block) =>
           block.type === "tool_use" &&
           block.name ===
-            "execute_work_governor_command"
+            "execute_control_governor_command"
       );
 
     if (
@@ -3088,7 +3117,7 @@ ${message}
       toolCall.type !== "tool_use"
     ) {
       throw new Error(
-        "Claude did not return a valid Work Governor command."
+        "Claude did not return a valid Control Governor command."
       );
     }
 
@@ -3829,7 +3858,11 @@ ${message}
                 update.qaScoreRationale,
 
               evidenceDataGapAnalysis:
-                update.evidenceDataGapAnalysis,
+                isNonEmptyString(
+                  update.evidenceDataGapAnalysis
+                )
+                  ? update.evidenceDataGapAnalysis
+                  : undefined,
             }));
 
         command = {
@@ -3862,8 +3895,13 @@ ${message}
               rawCommand.payload.message,
 
             applicationEvidenceDataGapSummary:
-              rawCommand.payload
-                .applicationEvidenceDataGapSummary,
+              isNonEmptyString(
+                rawCommand.payload
+                  .applicationEvidenceDataGapSummary
+              )
+                ? rawCommand.payload
+                    .applicationEvidenceDataGapSummary
+                : undefined,
           },
         };
 
@@ -3900,8 +3938,13 @@ ${message}
                 .application ?? "",
 
             applicationEvidenceDataGapSummary:
-              rawCommand.payload
-                .applicationEvidenceDataGapSummary,
+              isNonEmptyString(
+                rawCommand.payload
+                  .applicationEvidenceDataGapSummary
+              )
+                ? rawCommand.payload
+                    .applicationEvidenceDataGapSummary
+                : undefined,
 
             controlUpdates:
               gapControlUpdates,
@@ -3964,7 +4007,7 @@ ${message}
             message:
               rawCommand.payload
                 .message ??
-              "I need more information before changing Work Governor.",
+              "I need more information before changing Control Governor.",
           },
         };
       }
@@ -4007,7 +4050,7 @@ ${message}
     });
   } catch (error) {
     console.error(
-      "Work Governor API error:",
+      "Control Governor API error:",
       error
     );
 

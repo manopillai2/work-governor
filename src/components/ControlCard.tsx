@@ -13,8 +13,9 @@ import ReactMarkdown, {
 } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { noteSourceLabel } from "@/components/ApplicationCard";
 import CollapsibleSection from "@/components/CollapsibleSection";
+import { noteSourceLabel } from "@/services/notes";
+import { generateControlSummaryPdf } from "@/services/exportReport";
 import type {
   ChecklistChangeLogEntry,
   ChecklistChangeType,
@@ -22,6 +23,7 @@ import type {
   ChecklistTask,
   ControlStatus,
   Framework,
+  Note,
   QaScoreLevel,
   TaskCategory,
   WorkflowStage,
@@ -73,6 +75,11 @@ type ControlCardProps = {
   clientContext?: string;
   framework: Framework;
 
+  applicationTag?: {
+    appName: string;
+    context: string | null;
+  };
+
   stage: WorkflowStage;
 
   controlStatus: ControlStatus;
@@ -83,12 +90,14 @@ type ControlCardProps = {
   applicabilityRationale: string;
   evidenceStrategy: string;
   evidenceDataGapAnalysis?: string;
+  evidenceDataGapAnalysisStale?: boolean;
 
   qaScore?: QaScoreLevel;
   qaScoreRationale?: string;
   checklistChangeLog?: ChecklistChangeLogEntry[];
 
   nextTasks?: ChecklistTask[];
+  notes?: Note[];
 
   onToggleTask: (
     taskId: string
@@ -133,6 +142,8 @@ export default function ControlCard({
   clientContext = "",
   framework,
 
+  applicationTag,
+
   stage,
 
   controlStatus,
@@ -143,12 +154,14 @@ export default function ControlCard({
   applicabilityRationale,
   evidenceStrategy,
   evidenceDataGapAnalysis = "",
+  evidenceDataGapAnalysisStale = false,
 
   qaScore = "Not Started",
   qaScoreRationale = "",
   checklistChangeLog = [],
 
   nextTasks = [],
+  notes = [],
 
   onToggleTask,
   onAddTaskNote,
@@ -173,7 +186,8 @@ export default function ControlCard({
 
   const [menuPosition, setMenuPosition] =
     useState<{
-      top: number;
+      top?: number;
+      bottom?: number;
       right: number;
     } | null>(null);
 
@@ -185,13 +199,65 @@ export default function ControlCard({
       return;
     }
 
-    setMenuPosition({
-      top: rect.bottom + 4,
-      right:
-        window.innerWidth - rect.right,
-    });
+    // The menu is a fixed-position portal, so it never gets pushed
+    // back into view by page scrolling -- if there isn't room below
+    // the button (e.g. a control near the bottom of a short window),
+    // anchor it to open upward from the button instead of clipping
+    // off the bottom of the viewport.
+    const ESTIMATED_MENU_HEIGHT = 260;
+    const spaceBelow =
+      window.innerHeight - rect.bottom;
+    const openUpward =
+      spaceBelow < ESTIMATED_MENU_HEIGHT &&
+      rect.top > ESTIMATED_MENU_HEIGHT;
+
+    setMenuPosition(
+      openUpward
+        ? {
+            bottom:
+              window.innerHeight - rect.top + 4,
+            right:
+              window.innerWidth - rect.right,
+          }
+        : {
+            top: rect.bottom + 4,
+            right:
+              window.innerWidth - rect.right,
+          }
+    );
 
     setMenuOpen(true);
+  }
+
+  function handleExportSummary() {
+    const applicationName = applicationTag
+      ? `${applicationTag.appName}${
+          applicationTag.context
+            ? ` (${applicationTag.context})`
+            : ""
+        }`
+      : "Application";
+
+    generateControlSummaryPdf(applicationName, {
+      name: controlName,
+      framework,
+      stage,
+      controlStatus,
+      checklistStatus,
+      globalControlReference,
+      clientContext,
+      controlObjective,
+      controlRisk,
+      applicabilityRationale,
+      evidenceStrategy,
+      evidenceDataGapAnalysis,
+      evidenceDataGapAnalysisStale,
+      qaScore,
+      qaScoreRationale,
+      notes,
+      nextTasks,
+      checklistChangeLog,
+    });
   }
 
   // Rendered via a portal (position: fixed, escapes every
@@ -199,6 +265,12 @@ export default function ControlCard({
   // card, and the scrollable controls list all clip a normally
   // positioned dropdown), so close it on scroll/resize instead of
   // trying to keep it glued to the button.
+  //
+  // The listeners attach after a short delay rather than immediately:
+  // opening the menu focuses the trigger button, and the browser's own
+  // focus-scroll-into-view (plus the portal insertion itself) can fire
+  // a burst of scroll events on the very same tick, which would
+  // otherwise close the menu the instant it opens.
   useEffect(() => {
     if (!menuOpen) {
       return;
@@ -208,17 +280,20 @@ export default function ControlCard({
       setMenuOpen(false);
     }
 
-    window.addEventListener(
-      "scroll",
-      closeMenu,
-      true
-    );
-    window.addEventListener(
-      "resize",
-      closeMenu
-    );
+    const attachTimer = setTimeout(() => {
+      window.addEventListener(
+        "scroll",
+        closeMenu,
+        true
+      );
+      window.addEventListener(
+        "resize",
+        closeMenu
+      );
+    }, 500);
 
     return () => {
+      clearTimeout(attachTimer);
       window.removeEventListener(
         "scroll",
         closeMenu,
@@ -293,6 +368,15 @@ export default function ControlCard({
           aria-expanded={expanded}
           className="min-w-0 flex-1 text-left"
         >
+          {applicationTag ? (
+            <span className="mb-1 inline-flex w-fit items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
+              {applicationTag.appName}
+              {applicationTag.context
+                ? ` (${applicationTag.context})`
+                : ""}
+            </span>
+          ) : null}
+
           <h4 className="font-semibold text-slate-900">
             {controlName}
           </h4>
@@ -302,7 +386,9 @@ export default function ControlCard({
             <div className="mt-0.5 flex w-full min-w-0 items-center justify-between gap-2">
               {globalControlReference ? (
                 <span className="min-w-0 truncate text-xs text-slate-500">
-                  {globalControlReference}
+                  {applicationTag
+                    ? `${applicationTag.appName}${applicationTag.context ? ` - ${applicationTag.context}` : ""} - ${globalControlReference}`
+                    : globalControlReference}
                 </span>
               ) : (
                 <span />
@@ -372,6 +458,7 @@ export default function ControlCard({
                     style={{
                       position: "fixed",
                       top: menuPosition.top,
+                      bottom: menuPosition.bottom,
                       right:
                         menuPosition.right,
                     }}
@@ -459,6 +546,19 @@ export default function ControlCard({
                         ? "Control Completed"
                         : "Mark Control Completed"}
                     </button>
+
+                    <div className="my-1 border-t border-slate-100" />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        handleExportSummary();
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-sm text-emerald-700 hover:bg-slate-100"
+                    >
+                      Export Summary
+                    </button>
                   </div>
                 </>,
                 document.body
@@ -529,6 +629,14 @@ export default function ControlCard({
                 "evidenceDataGap"
               )
             }
+            badge={
+              evidenceDataGapAnalysisStale &&
+              evidenceDataGapAnalysis ? (
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                  Possibly outdated
+                </span>
+              ) : undefined
+            }
             headerActions={
               onRefreshEvidenceDataGapAnalysis ? (
                 <button
@@ -544,6 +652,16 @@ export default function ControlCard({
               ) : undefined
             }
           >
+            {evidenceDataGapAnalysisStale &&
+            evidenceDataGapAnalysis ? (
+              <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                A source document behind this
+                analysis was deleted -- it may no
+                longer be accurate. Click Refresh
+                to update it.
+              </p>
+            ) : null}
+
             {evidenceDataGapAnalysis ? (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}

@@ -103,6 +103,22 @@ function controlMatchesFacets(
   return frameworkOk && statusOk && clientCodeOk;
 }
 
+export type FlatControlEntry = {
+  application: Application;
+  control: ComplianceControl;
+};
+
+export function toFlatControlEntries(
+  applications: Application[]
+): FlatControlEntry[] {
+  return applications.flatMap((application) =>
+    application.controls.map((control) => ({
+      application,
+      control,
+    }))
+  );
+}
+
 export function filterApplications(
   applications: Application[],
   filters: ApplicationFilterState

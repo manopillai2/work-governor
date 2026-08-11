@@ -1,6 +1,17 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import ThemeToggle from "@/components/ThemeToggle";
+import MatrixRainBackground from "@/components/MatrixRainBackground";
+import AppStateProvider from "@/components/AppStateProvider";
+
+const THEME_INIT_SCRIPT = `
+try {
+  var t = localStorage.getItem('control-governor-theme');
+  if (t === 'rain') document.documentElement.setAttribute('data-theme', 'rain');
+} catch (e) {}
+`;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,7 +24,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Manoj Work Governor for CORE",
+  title: "Manoj Control Governor for CORE",
   description: "AI-powered personal compliance work assistant",
 };
 
@@ -32,8 +43,18 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
+      <body className="min-h-full flex flex-col">
+        <ThemeProvider>
+          <ThemeToggle />
+          <MatrixRainBackground />
+          <AppStateProvider>{children}</AppStateProvider>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

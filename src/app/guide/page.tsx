@@ -3,7 +3,7 @@
 // Purpose        : Standalone product guide for Work
 //                  Governor -- architecture, objectives,
 //                  and every function/action it exposes.
-//                  Reached by clicking the "Work Governor"
+//                  Reached by clicking the "Control Governor"
 //                  title in the app header.
 // Author         : Manoj
 // ======================================================
@@ -12,9 +12,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Work Governor -- Guide",
+  title: "Control Governor -- Guide",
   description:
-    "Architecture, objectives, and functions of the Work Governor compliance workspace.",
+    "Architecture, objectives, and functions of the Control Governor compliance workspace.",
 };
 
 type Tone =
@@ -338,7 +338,7 @@ export default function GuidePage() {
           </Link>
 
           <h1 className="mt-4 text-4xl font-extrabold tracking-tight sm:text-5xl">
-            Work Governor
+            Control Governor
           </h1>
 
           <p className="mt-3 max-w-2xl text-base leading-7 text-blue-50">
@@ -357,6 +357,17 @@ export default function GuidePage() {
             separately with full attribution, and actively surfaces where
             they diverge -- driving the shift from screenshot-style
             evidence to authoritative, system-generated data.
+          </p>
+
+          <p className="mt-3 max-w-2xl text-base leading-7 text-blue-50">
+            Day-to-day work happens on a flat Controls list -- every
+            control tagged with its application, client context ID, and
+            control type, so filtering and cross-application summaries
+            stay effortless even as more applications are added.
+            Application-level context, evidence-vs-data summaries, and
+            bulk actions (across every control on an application) live on
+            a separate Applications page, one click away via the toggle
+            button next to each view's heading.
           </p>
 
           <p className="mt-4 text-xs font-medium text-blue-200">
@@ -380,7 +391,7 @@ export default function GuidePage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
               <FlowBox
                 title="Browser UI"
-                lines={["ChatPanel, ApplicationCard,", "ControlCard"]}
+                lines={["ChatPanel, ControlCard,", "ApplicationDetail"]}
                 tone="blue"
                 icon={<IconBrowser />}
               />
@@ -476,7 +487,7 @@ export default function GuidePage() {
           <SectionHeading
             index="2"
             title="Permanent Assignment Objective"
-            subtitle="This objective is permanent and guides every application, control, checklist, question, response, and recommendation Work Governor produces."
+            subtitle="This objective is permanent and guides every application, control, checklist, question, response, and recommendation Control Governor produces."
             tone="violet"
           />
 
@@ -513,7 +524,7 @@ export default function GuidePage() {
           <SectionHeading
             index="3"
             title="Checklist Generation Priority"
-            subtitle="Applies to every checklist Work Governor produces -- creating, adding, or regenerating a control."
+            subtitle="Applies to every checklist Control Governor produces -- creating, adding, or regenerating a control."
             tone="cyan"
           />
 
@@ -810,7 +821,7 @@ export default function GuidePage() {
       </div>
 
       <footer className="border-t border-slate-200 bg-white py-8 text-center text-xs text-slate-400">
-        Work Governor &middot; Developed by Manoj
+        Control Governor &middot; Developed by Manoj
       </footer>
     </main>
   );

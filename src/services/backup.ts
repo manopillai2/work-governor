@@ -38,7 +38,7 @@ export function downloadApplicationBackup(
 
   const link = document.createElement("a");
   link.href = url;
-  link.download = `work-governor-backup-${formatFileTimestamp()}.json`;
+  link.download = `control-governor-backup-${formatFileTimestamp()}.json`;
 
   document.body.appendChild(link);
   link.click();
@@ -64,7 +64,7 @@ export async function loadBackupHistory(): Promise<
       : [];
   } catch (error) {
     console.error(
-      "Unable to load Work Governor backup history:",
+      "Unable to load Control Governor backup history:",
       error
     );
 

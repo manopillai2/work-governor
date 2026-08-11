@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       max_tokens: 2000,
 
       system: `
-You are the Learning Engine analyzer for Work Governor, a compliance checklist tool.
+You are the Learning Engine analyzer for Control Governor, a compliance checklist tool.
 
 You are given a batch of checklist changes a user just made to one control. Each
 change already includes WHY, taken from the user's own notes, in "reason".

@@ -165,6 +165,12 @@ export interface ComplianceControl {
   // control, or on demand via UPDATE_EVIDENCE_DATA_GAP_ANALYSIS.
   evidenceDataGapAnalysis: string;
 
+  // True when a document referenced by this analysis (or by any of
+  // this control's notes) has since been deleted -- the text above is
+  // no longer guaranteed accurate until the user refreshes it. Set on
+  // deletion, cleared whenever evidenceDataGapAnalysis is regenerated.
+  evidenceDataGapAnalysisStale: boolean;
+
   notes: Note[];
   nextTasks: ChecklistTask[];
 
@@ -204,6 +210,11 @@ export interface Application {
   // view, not a per-control breakdown (see ComplianceControl's
   // evidenceDataGapAnalysis for that).
   evidenceDataGapSummary: string;
+
+  // True when a document behind this summary (or any control's
+  // analysis) has since been deleted -- see
+  // ComplianceControl.evidenceDataGapAnalysisStale.
+  evidenceDataGapSummaryStale: boolean;
 
   notes: Note[];
 
@@ -658,6 +669,113 @@ export function normalizeNotes(
     .filter(
       (note): note is Note => note !== null
     );
+}
+
+const NOTE_CATEGORY_CODE: Record<
+  NoteSourceKind,
+  string
+> = {
+  evidence: "eve",
+  data: "dat",
+  manual: "man",
+};
+
+// Deterministic, e.g. "Salesforce - CXT" -> "sfc" -- initials of up to
+// the first 3 words, or the first 3 letters for a single-word name.
+// Two differently-named applications can in principle collide; that's
+// an accepted tradeoff of a readable, name-derived code over an
+// opaque running number.
+function deriveAppShortCode(name: string): string {
+  const words = (name || "")
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "app";
+  }
+
+  if (words.length === 1) {
+    return (
+      words[0].slice(0, 3).toLowerCase() || "app"
+    );
+  }
+
+  return words
+    .slice(0, 3)
+    .map((word) => word[0])
+    .join("")
+    .toLowerCase();
+}
+
+// Reassigns every note's id to a short, readable
+// "<app-code><category><sequence>" form (e.g. "sfceve3"), ordered by
+// createdAt so ids stay stable across repeated runs. Nothing in the
+// app matches a note by id (only by object reference/array position),
+// so this is safe to run on every command result and on load -- it
+// both keeps new notes numbered correctly and, the first time it
+// runs, renumbers whatever notes already existed under the old
+// note-<timestamp>-<random> scheme.
+export function renumberApplicationNoteIds(
+  application: Application
+): Application {
+  const shortCode = deriveAppShortCode(
+    application.name || application.id
+  );
+
+  const allNotes: Note[] = [
+    ...application.notes,
+    ...application.controls.flatMap((control) => [
+      ...control.notes,
+      ...control.nextTasks.flatMap(
+        (task) => task.notes
+      ),
+    ]),
+  ];
+
+  const sortedNotes = [...allNotes].sort(
+    (a, b) =>
+      new Date(a.createdAt).getTime() -
+      new Date(b.createdAt).getTime()
+  );
+
+  const counters: Record<string, number> = {};
+  const newIdByNote = new Map<Note, string>();
+
+  for (const note of sortedNotes) {
+    const category =
+      NOTE_CATEGORY_CODE[note.sourceKind];
+    counters[category] =
+      (counters[category] ?? 0) + 1;
+    newIdByNote.set(
+      note,
+      `${shortCode}${category}${counters[category]}`
+    );
+  }
+
+  function renumber(note: Note): Note {
+    const newId = newIdByNote.get(note);
+    return newId !== undefined &&
+      newId !== note.id
+      ? { ...note, id: newId }
+      : note;
+  }
+
+  return {
+    ...application,
+    notes: application.notes.map(renumber),
+    controls: application.controls.map(
+      (control) => ({
+        ...control,
+        notes: control.notes.map(renumber),
+        nextTasks: control.nextTasks.map(
+          (task) => ({
+            ...task,
+            notes: task.notes.map(renumber),
+          })
+        ),
+      })
+    ),
+  };
 }
 
 export function normalizeApplicationId(
@@ -1383,6 +1501,9 @@ export function refreshControlState(
       control.argosObjective || "",
     evidenceDataGapAnalysis:
       control.evidenceDataGapAnalysis || "",
+    evidenceDataGapAnalysisStale:
+      control.evidenceDataGapAnalysisStale ===
+      true,
     notes: normalizeNotes(control.notes),
     nextTasks: cleanChecklistTasks(
       Array.isArray(control.nextTasks)
@@ -1837,6 +1958,7 @@ function createControl(
     clientContext: clientContext || "",
 
     evidenceDataGapAnalysis: "",
+    evidenceDataGapAnalysisStale: false,
 
     notes: [],
     nextTasks: generateDefaultTasks(
@@ -1901,6 +2023,7 @@ function createEmptyApplication(
 
     contextStatus: "Missing",
     evidenceDataGapSummary: "",
+    evidenceDataGapSummaryStale: false,
     notes: [],
     controls: [],
   };
@@ -2110,12 +2233,36 @@ function applyMeetingResponseControlUpdate(
       evidenceDataGapAnalysis:
         update.evidenceDataGapAnalysis ??
         control.evidenceDataGapAnalysis,
+      evidenceDataGapAnalysisStale:
+        update.evidenceDataGapAnalysis !==
+        undefined
+          ? false
+          : control.evidenceDataGapAnalysisStale,
     }),
     unmatchedTaskTexts,
   };
 }
 
 export function executeCommand(
+  command: Command,
+  currentApplications: Application[],
+  noteSource?: NoteSource
+): CommandResult {
+  const result = executeCommandInner(
+    command,
+    currentApplications,
+    noteSource
+  );
+
+  return {
+    ...result,
+    applications: result.applications.map(
+      renumberApplicationNoteIds
+    ),
+  };
+}
+
+function executeCommandInner(
   command: Command,
   currentApplications: Application[],
   noteSource?: NoteSource
@@ -2179,7 +2326,7 @@ export function executeCommand(
         String(
           command.payload.message ?? ""
         ).trim() ||
-        "A full backup of Work Governor data was generated.",
+        "A full backup of Control Governor data was generated.",
     };
   }
 
@@ -3738,6 +3885,12 @@ export function executeCommand(
               command.payload
                 .applicationEvidenceDataGapSummary ??
               applicationWithContext.evidenceDataGapSummary,
+            evidenceDataGapSummaryStale:
+              command.payload
+                .applicationEvidenceDataGapSummary !==
+              undefined
+                ? false
+                : applicationWithContext.evidenceDataGapSummaryStale,
             controls:
               applicationWithContext.controls.map(
                 (control) =>
@@ -3858,6 +4011,7 @@ export function executeCommand(
                 ...targetControl,
                 evidenceDataGapAnalysis:
                   update.evidenceDataGapAnalysis,
+                evidenceDataGapAnalysisStale: false,
               }
             );
 
@@ -3872,6 +4026,12 @@ export function executeCommand(
               command.payload
                 .applicationEvidenceDataGapSummary ??
               currentApplication.evidenceDataGapSummary,
+            evidenceDataGapSummaryStale:
+              command.payload
+                .applicationEvidenceDataGapSummary !==
+              undefined
+                ? false
+                : currentApplication.evidenceDataGapSummaryStale,
             controls:
               currentApplication.controls.map(
                 (control) =>

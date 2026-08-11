@@ -46,6 +46,7 @@ export async function GET() {
       globalControlReference: row.globalControlReference,
       clientContext: row.clientContext,
       evidenceDataGapAnalysis: row.evidenceDataGapAnalysis,
+      evidenceDataGapAnalysisStale: row.evidenceDataGapAnalysisStale,
       notes: row.notes,
       nextTasks: row.nextTasks,
       checklistChangeLog: row.checklistChangeLog,
@@ -78,6 +79,7 @@ export async function GET() {
       contextStatus:
         row.contextStatus as Application["contextStatus"],
       evidenceDataGapSummary: row.evidenceDataGapSummary,
+      evidenceDataGapSummaryStale: row.evidenceDataGapSummaryStale,
       notes: row.notes,
       controls: controlsByApplication.get(row.id) ?? [],
     }));
@@ -121,6 +123,8 @@ export async function PUT(request: Request) {
           contextStatus: application.contextStatus,
           evidenceDataGapSummary:
             application.evidenceDataGapSummary,
+          evidenceDataGapSummaryStale:
+            application.evidenceDataGapSummaryStale,
           notes: application.notes,
         }))
       );
@@ -147,6 +151,8 @@ export async function PUT(request: Request) {
             clientContext: control.clientContext,
             evidenceDataGapAnalysis:
               control.evidenceDataGapAnalysis,
+            evidenceDataGapAnalysisStale:
+              control.evidenceDataGapAnalysisStale,
             notes: control.notes,
             nextTasks: control.nextTasks,
             checklistChangeLog: control.checklistChangeLog,

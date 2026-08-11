@@ -1,7 +1,7 @@
 // ======================================================
 // Service Name   : Parser
 // Purpose        : Converts temporary chat patterns
-//                  into Work Governor commands
+//                  into Control Governor commands
 // Author         : Manoj
 // ======================================================
 
