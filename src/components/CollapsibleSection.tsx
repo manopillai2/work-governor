@@ -115,7 +115,7 @@ export default function CollapsibleSection({
           className="flex min-w-0 flex-1 items-baseline justify-between gap-3 text-left"
         >
           <h5
-            className={`shrink-0 text-sm font-semibold ${TITLE_CLASSES[theme]}`}
+            className={`shrink-0 text-base font-bold ${TITLE_CLASSES[theme]}`}
           >
             {title}
           </h5>

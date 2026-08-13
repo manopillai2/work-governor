@@ -38,7 +38,7 @@ function ApplicationTile({
           : "border-slate-700 bg-slate-900 hover:bg-slate-800/70"
       }`}
     >
-      <h3 className="text-lg font-semibold text-white">
+      <h3 className="text-xl font-bold text-white">
         {appName}
         {context ? (
           <span className="ml-2 text-base font-normal text-slate-400">
@@ -133,7 +133,7 @@ export default function ApplicationsPage() {
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
             <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold text-white">
+                <h2 className="text-2xl font-bold text-white">
                   Applications
                 </h2>
 

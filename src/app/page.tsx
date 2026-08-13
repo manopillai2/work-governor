@@ -122,7 +122,7 @@ export default function Home() {
         >
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
             <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
-              <h2 className="text-xl font-semibold text-white">
+              <h2 className="text-2xl font-bold text-white">
                 Controls
               </h2>
 

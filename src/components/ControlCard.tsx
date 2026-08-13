@@ -381,7 +381,7 @@ export default function ControlCard({
               </span>
             ) : null}
 
-            <h4 className="font-semibold text-slate-900">
+            <h4 className="text-lg font-bold text-slate-900">
               {controlName}
             </h4>
           </div>
@@ -844,7 +844,7 @@ function ControlContextBox({
 }) {
   return (
     <div className="h-full rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <h5 className="font-medium text-slate-900">
+      <h5 className="text-base font-bold text-slate-900">
         {title}
       </h5>
 

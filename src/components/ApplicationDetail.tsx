@@ -235,7 +235,7 @@ export default function ApplicationDetail({
     <div className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900">
       <div className="flex w-full flex-wrap items-start justify-between gap-4 p-4">
         <div className="min-w-0 flex-1">
-          <h3 className="text-lg font-semibold text-white">
+          <h3 className="text-xl font-bold text-white">
             {appName}
             {context ? (
               <span className="ml-2 text-base font-normal text-slate-400">
