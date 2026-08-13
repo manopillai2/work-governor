@@ -1035,6 +1035,27 @@ a discrepancy that isn't actually there -- every bullet must trace to
 something actually present (or actually absent) in the notes/archive,
 not a fabricated guess.
 
+TURNING "WHAT'S MISSING FROM DATA" INTO AN ACTUAL ASK
+
+When this is happening inside PROCESS_MEETING_RESPONSE (which can add
+checklist items -- see payload.controlUpdates[].addTasks below), every
+bullet you write under "What's Missing From Data" must also become a
+concrete checklist task through addTasks, category "Access" (when the
+gap is about getting to a data source at all) or "Evidence Collection"
+(when access already exists but the specific field/export needs to be
+pulled), required true. Phrase the task as the actual ask, e.g.
+"Request read-only access to the identity provider's password-policy
+API to pull LastPasswordChangeDate" -- not a restatement of the gap.
+This is what turns "here is a paragraph describing a gap" into a
+trackable, assignable ask to the application team, and it is the
+direct mechanism for reaching real, programmatic data access over
+time rather than leaving the gap as description only. Do not duplicate
+a task if an existing open item already asks for essentially the same
+access. This does not apply to UPDATE_EVIDENCE_DATA_GAP_ANALYSIS,
+which never touches the checklist (see below) -- there, just write the
+analysis text and let payload.message point out that regenerating via
+a reply that adds notes would let it propose the matching task.
+
 When you write evidenceDataGapAnalysis for at least one control this
 turn, also set payload.applicationEvidenceDataGapSummary. Like
 evidenceDataGapAnalysis, this is always a single Markdown string --
@@ -1787,6 +1808,15 @@ itself should change:
   to something already asked. When it's ambiguous whether something is
   new scope or more detail on existing scope, treat it as existing
   scope and refine rather than extend.
+- Before adding a new item, check it against this control's own
+  controlObjective and controlRisk (shown in CURRENT CONTROL GOVERNOR
+  DATA), not just against "is this interesting/new." A new item must
+  serve this control's actual risk -- if a note reveals something
+  real but it does not bear on why this specific control exists, it
+  does not belong on this control's checklist (it may belong on a
+  different control, or nowhere yet). This is what keeps asks to the
+  application team from drifting into a general fishing expedition
+  as more documents and data come in.
 - If an existing item is now redundant, fully answered with nothing
   further to track, or turns out not applicable, mark it as no longer
   relevant by listing its exact existing text in
@@ -1800,7 +1830,14 @@ itself should change:
 - Every addition and every irrelevant-marking must have a matching
   entry in changeLogEntries (changeType ADDED or MARKED_IRRELEVANT)
   with a specific reason grounded in what the notes actually said.
-  Never add or mark a checklist item without a logged reason.
+  Never add or mark a checklist item without a logged reason. For an
+  ADDED entry specifically, the reason must name which part of this
+  control's objective or risk the new item serves, not only what the
+  notes said -- for example "Notes reveal a third-party SSO provider
+  handling authentication, which this control's risk (unauthorized
+  access) requires evaluating" rather than just "notes mentioned an
+  SSO provider." A reason that only restates the note, with no link
+  back to the control's own objective or risk, is not sufficient.
 - Do not ask for confirmation before making these changes. The change
   happens immediately, is visible on the checklist right away, and is
   permanently recorded in the checklist change log for later
@@ -1830,10 +1867,19 @@ Use this rubric:
 - Well Researched: the checklist has been meaningfully reshaped by
   findings; evidence sources, owners, and access methods are named
   concretely rather than generically.
-- Argos Ready: the evidence strategy and Argos objective are
-  concrete and specific enough to implement monitoring logic
-  directly, including data source, fields, frequency, and exception
-  criteria.
+- Argos Ready: real data -- not evidence, not a well-written plan --
+  backs every claim this control depends on. Concretely: if an
+  Evidence vs. Data Gap Analysis exists for this control, it has zero
+  remaining "What's Missing From Data" items (every claim is
+  Confirmed by data, none is still evidence-only or contradicted),
+  and the Argos objective is concrete and specific enough to
+  implement monitoring logic directly, including data source, fields,
+  frequency, and exception criteria. A control can have a strong
+  evidence strategy and a sharp Argos objective and still not be
+  Argos Ready if real data has not yet replaced the evidence for
+  every claim -- that control is Well Researched at most. Do not
+  round up: 100% here means data-complete, not plan-complete or
+  evidence-complete.
 
 Always include qaScoreRationale, one short sentence explaining why
 this level applies right now.

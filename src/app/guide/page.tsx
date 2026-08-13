@@ -12,6 +12,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import RainToggle from "@/components/RainToggle";
+import ControlGovernorExplainer from "@/components/ControlGovernorExplainer";
 
 export const metadata: Metadata = {
   title: "Control Governor -- Guide",
@@ -387,6 +388,12 @@ export default function GuidePage() {
           </p>
         </div>
       </div>
+
+      <section className="snap-start bg-slate-950 px-6 py-14">
+        <div className="mx-auto max-w-7xl">
+          <ControlGovernorExplainer />
+        </div>
+      </section>
 
       <div className="mx-auto max-w-7xl space-y-16 px-6 py-14">
         {/* 1. Architecture */}

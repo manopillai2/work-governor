@@ -503,3 +503,17 @@ select:focus {
     opacity: 0 !important;
   }
 }
+
+/* ControlGovernorExplainer.tsx is a self-contained, deliberately
+   dark-backdrop section (like the guide page's own hero) -- it reads
+   --background/--foreground via var(..., fallback), and this app
+   *does* define those two names at :root, but only in response to
+   prefers-color-scheme, never our own [data-theme] toggle. Without
+   this, the explainer's panels/text could silently follow the OS
+   theme instead of either its own intended palette or this app's
+   theme system. Pin them explicitly so it always renders its own
+   fixed dark look, consistent regardless of OS or in-app theme. */
+.cg-explainer {
+  --background: #0b1020;
+  --foreground: #f7f8fb;
+}

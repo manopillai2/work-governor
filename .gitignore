@@ -40,8 +40,9 @@ yarn-error.log*
 # uploaded evidence documents (stored on disk, referenced from the DB)
 /uploads/
 
-# manual pre-reset snapshots (real evidence documents + DB exports)
+# manual pre-change snapshots (real evidence documents + DB exports)
 /pre-reset-backup-*/
+/pre-argos-changes-backup-*/
 
 # docker env files (real credentials; .example files are tracked)
 docker/**/.env.docker
