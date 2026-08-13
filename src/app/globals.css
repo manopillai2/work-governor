@@ -181,6 +181,28 @@ select:focus {
   /* hover:text-white's only real usage is the guide page's link on its
      own colored gradient hero (unrelated to the dark-canvas-was-light
      fix) -- it should stay white on hover there, so no override. */
+
+  /* The guide page hero is a deliberately colored gradient banner
+     (indigo/blue/cyan), not the neutral dark-canvas-turned-light
+     surface the rules above are for -- its white/light-blue text was
+     already correct and needs to stay put, or it collides with a
+     similarly-hued background and nearly disappears (seen in
+     practice: text-blue-50 body copy became #1d4ed8 -- almost
+     invisible against a blue/indigo/cyan gradient). Scoped to the
+     hero's own unique class combination so nothing else is affected. */
+  .from-indigo-700.via-blue-700.text-white,
+  .from-indigo-700.via-blue-700 .text-white {
+    color: #ffffff !important;
+  }
+  .from-indigo-700.via-blue-700 .text-blue-50 {
+    color: #eff6ff !important;
+  }
+  .from-indigo-700.via-blue-700 .text-blue-100 {
+    color: #dbeafe !important;
+  }
+  .from-indigo-700.via-blue-700 .text-blue-200 {
+    color: #bfdbfe !important;
+  }
 }
 
 /* ============================================================
@@ -258,6 +280,8 @@ select:focus {
 [data-theme="dark"] .bg-blue-950 { background-color: rgb(0,46,51) !important; }
 [data-theme="dark"] .bg-blue-950\/40 { background-color: rgb(0,18,20) !important; }
 [data-theme="dark"] .bg-blue-950\/60 { background-color: rgb(0,27,31) !important; }
+[data-theme="dark"] .bg-cyan-50 { background-color: rgb(0,30,31) !important; }
+[data-theme="dark"] .bg-cyan-600 { background-color: rgb(0,133,155) !important; }
 [data-theme="dark"] .bg-emerald-50 { background-color: rgb(0,31,16) !important; }
 [data-theme="dark"] .bg-emerald-600 { background-color: rgb(0,140,73) !important; }
 [data-theme="dark"] .bg-emerald-950 { background-color: rgb(0,51,27) !important; }
@@ -317,6 +341,7 @@ select:focus {
 [data-theme="dark"] .border-blue-500 { border-color: rgb(0,126,140) !important; }
 [data-theme="dark"] .border-blue-700 { border-color: rgb(0,126,140) !important; }
 [data-theme="dark"] .border-blue-900 { border-color: rgb(0,126,140) !important; }
+[data-theme="dark"] .border-cyan-200 { border-color: rgb(0,133,155) !important; }
 [data-theme="dark"] .border-emerald-200 { border-color: rgb(0,140,73) !important; }
 [data-theme="dark"] .border-emerald-700 { border-color: rgb(0,140,73) !important; }
 [data-theme="dark"] .border-emerald-900 { border-color: rgb(0,140,73) !important; }
@@ -350,6 +375,8 @@ select:focus {
 [data-theme="dark"] .text-blue-50 { color: #00e5ff !important; }
 [data-theme="dark"] .text-blue-600 { color: #00e5ff !important; }
 [data-theme="dark"] .text-blue-700 { color: #00e5ff !important; }
+[data-theme="dark"] .text-cyan-700 { color: #2dd4ee !important; }
+[data-theme="dark"] .text-cyan-800 { color: #2dd4ee !important; }
 [data-theme="dark"] .text-emerald-300 { color: #00ff85 !important; }
 [data-theme="dark"] .text-emerald-700 { color: #00ff85 !important; }
 [data-theme="dark"] .text-green-700 { color: #39ff6a !important; }

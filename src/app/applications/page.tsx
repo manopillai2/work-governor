@@ -156,13 +156,6 @@ export default function ApplicationsPage() {
               </div>
 
               <div className="flex shrink-0 items-center gap-3">
-                <span className="shrink-0 rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
-                  {applications.length} application
-                  {applications.length === 1
-                    ? ""
-                    : "s"}
-                </span>
-
                 <NavSwitchButton />
               </div>
             </div>
