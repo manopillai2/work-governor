@@ -509,10 +509,13 @@ export default function ControlCard({
                         setMenuOpen(false);
                         onRegenerateChecklist();
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
                     >
+                      <IconRefresh />
                       Regenerate Checklist
                     </button>
+
+                    <div className="my-1 border-t border-slate-100" />
 
                     <button
                       type="button"
@@ -520,8 +523,9 @@ export default function ControlCard({
                         setMenuOpen(false);
                         onPrepEmail();
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-blue-700 hover:bg-slate-100"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-blue-700 hover:bg-slate-100"
                     >
+                      <IconMail />
                       Prep Email
                     </button>
 
@@ -531,10 +535,13 @@ export default function ControlCard({
                         setMenuOpen(false);
                         onShowQuestions();
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-blue-700 hover:bg-slate-100"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-blue-700 hover:bg-slate-100"
                     >
+                      <IconQuestion />
                       Show Questions
                     </button>
+
+                    <div className="my-1 border-t border-slate-100" />
 
                     <button
                       type="button"
@@ -548,8 +555,9 @@ export default function ControlCard({
                         controlStatus !==
                           "Completed"
                       }
-                      className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
                     >
+                      <IconCheck />
                       {controlStatus ===
                       "Completed"
                         ? "Control Completed"
@@ -564,8 +572,9 @@ export default function ControlCard({
                         setMenuOpen(false);
                         handleExportSummary();
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-emerald-700 hover:bg-slate-100"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-emerald-700 hover:bg-slate-100"
                     >
+                      <IconDownload />
                       Export Summary
                     </button>
                   </div>
@@ -861,6 +870,66 @@ function ControlContextBox({
           "Not yet defined. Regenerate the contextual checklist after completing the application context."}
       </p>
     </div>
+  );
+}
+
+// Small action-menu icons, matching the app's stroke-based icon style
+// (1.4-1.7 width, rounded caps) used everywhere else.
+const MENU_ICON_PROPS = {
+  width: 14,
+  height: 14,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.8,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+function IconRefresh() {
+  return (
+    <svg {...MENU_ICON_PROPS}>
+      <path d="M21 12a9 9 0 10-2.6 6.36" />
+      <path d="M21 5v6h-6" />
+    </svg>
+  );
+}
+
+function IconMail() {
+  return (
+    <svg {...MENU_ICON_PROPS}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M4 6.5l8 6 8-6" />
+    </svg>
+  );
+}
+
+function IconQuestion() {
+  return (
+    <svg {...MENU_ICON_PROPS}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.5a2.5 2.5 0 114 2c-.7.6-1.5 1-1.5 2.2" />
+      <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconCheck() {
+  return (
+    <svg {...MENU_ICON_PROPS}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12.3l2.7 2.7L16.3 9" />
+    </svg>
+  );
+}
+
+function IconDownload() {
+  return (
+    <svg {...MENU_ICON_PROPS}>
+      <path d="M12 3v12" />
+      <path d="M7.5 10.5L12 15l4.5-4.5" />
+      <path d="M4 18v1a2 2 0 002 2h12a2 2 0 002-2v-1" />
+    </svg>
   );
 }
 
