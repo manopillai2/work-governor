@@ -85,7 +85,10 @@ export default function Header({ progress }: HeaderProps) {
         <div className="mx-auto flex w-full max-w-[1900px] items-center justify-between gap-2 px-5 py-2">
           <div className="flex items-center gap-2">
             <Link
-              href="/"
+              href="/guide"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="What is Control Governor?"
               className="flex items-center gap-1.5"
             >
               <AppLogo size={20} />
@@ -119,7 +122,10 @@ export default function Header({ progress }: HeaderProps) {
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <Link
-                  href="/"
+                  href="/guide"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="What is Control Governor?"
                   className="flex items-center gap-2"
                 >
                   <AppLogo size={28} />
@@ -135,24 +141,6 @@ export default function Header({ progress }: HeaderProps) {
                   <ChevronIcon collapsed={collapsed} />
                 </button>
               </div>
-
-              <Link
-                href="/guide"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-0.5 inline-flex w-fit items-center gap-1 text-xs font-semibold text-blue-600 transition hover:text-blue-700 hover:underline underline-offset-2"
-              >
-                What is Control Governor?
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path
-                    d="M1 9L9 1M9 1H2.5M9 1V7.5"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </Link>
             </div>
 
             <span className="rounded-full bg-blue-100 px-4 py-2 text-sm font-medium text-blue-700">
