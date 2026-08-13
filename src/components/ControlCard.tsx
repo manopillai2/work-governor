@@ -416,10 +416,26 @@ export default function ControlCard({
             </div>
           ) : null}
 
-          <div className="mt-3 text-xs text-slate-500">
-            {completedTasks} of {totalTasks} tasks
-            completed · Current focus:{" "}
-            {currentFocus}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-slate-500">
+              {completedTasks} of {totalTasks}{" "}
+              tasks completed · Current focus:{" "}
+              {currentFocus}
+            </span>
+
+            <span className="flex shrink-0 items-center gap-1.5">
+              <ControlStatusBadge
+                status={controlStatus}
+              />
+              {!isChecklistStatusRedundant(
+                controlStatus,
+                checklistStatus
+              ) ? (
+                <ChecklistStatusBadge
+                  status={checklistStatus}
+                />
+              ) : null}
+            </span>
           </div>
         </button>
 
@@ -473,36 +489,6 @@ export default function ControlCard({
                     }}
                     className="z-50 w-64 rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
                   >
-                    <div className="px-3 py-1.5">
-                      <div className="text-xs font-medium text-slate-500">
-                        Stage: {stage}
-                      </div>
-
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
-                          {framework}
-                        </span>
-
-                        <ControlStatusBadge
-                          status={
-                            controlStatus
-                          }
-                        />
-
-                        <ChecklistStatusBadge
-                          status={
-                            checklistStatus
-                          }
-                        />
-
-                        <QaScoreBadge
-                          score={qaScore}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="my-1 border-t border-slate-100" />
-
                     <button
                       type="button"
                       onClick={() => {
@@ -933,6 +919,30 @@ function IconDownload() {
   );
 }
 
+// controlStatus is partly derived from checklistStatus
+// (deriveControlStatus in commandEngine.ts), so some pairings just
+// say the same thing twice next to each other -- "Checklist Review
+// Pending" control status always co-occurs with a "Review Pending"
+// checklist status, and a fully completed control commonly shows
+// "Completed" for both. Every other pairing carries real,
+// non-redundant information (e.g. "Needs Revision", or "Approved"
+// while the control itself is still "In Progress"), so only these
+// two exact overlaps are hidden.
+function isChecklistStatusRedundant(
+  controlStatus: ControlStatus,
+  checklistStatus: ChecklistStatus
+): boolean {
+  return (
+    checklistStatus === controlStatus ||
+    (controlStatus ===
+      "Checklist Review Pending" &&
+      checklistStatus === "Review Pending")
+  );
+}
+
+// Compact, prefix-free -- sits inline on the card header next to the
+// task-progress line rather than in its own labeled block, so the two
+// statuses that matter at a glance cost no extra header space.
 function ControlStatusBadge({
   status,
 }: {
@@ -956,9 +966,9 @@ function ControlStatusBadge({
 
   return (
     <span
-      className={`rounded-full px-3 py-1 text-xs font-medium ${classes[status]}`}
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}
     >
-      Control: {status}
+      {status}
     </span>
   );
 }
@@ -984,39 +994,9 @@ function ChecklistStatusBadge({
 
   return (
     <span
-      className={`rounded-full px-3 py-1 text-xs font-medium ${classes[status]}`}
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}
     >
-      Checklist: {status}
-    </span>
-  );
-}
-
-function QaScoreBadge({
-  score,
-}: {
-  score: QaScoreLevel;
-}) {
-  const classes: Record<
-    QaScoreLevel,
-    string
-  > = {
-    "Not Started":
-      "bg-slate-100 text-slate-700",
-    "Surface Level":
-      "bg-amber-100 text-amber-800",
-    Developing:
-      "bg-blue-100 text-blue-700",
-    "Well Researched":
-      "bg-indigo-100 text-indigo-700",
-    "Argos Ready":
-      "bg-green-100 text-green-700",
-  };
-
-  return (
-    <span
-      className={`rounded-full px-3 py-1 text-xs font-medium ${classes[score]}`}
-    >
-      QA: {score}
+      {status}
     </span>
   );
 }
