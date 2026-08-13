@@ -167,6 +167,12 @@ select:focus {
   .file\:bg-blue-600.file\:text-white::file-selector-button {
     color: #ffffff !important;
   }
+  /* Same fix, for the gradient primary-action buttons (Application
+     View, Send) -- gradient utilities never carry a literal
+     bg-blue-600 class, so the compound rule above can't match them. */
+  .from-blue-700.to-indigo-600.text-white {
+    color: #ffffff !important;
+  }
 
   .hover\:bg-amber-950:hover { background-color: #fef3c7 !important; }
   .hover\:bg-blue-900:hover { background-color: #dbeafe !important; }
@@ -366,6 +372,8 @@ select:focus {
 [data-theme="dark"] .border-violet-200 { border-color: rgb(102,57,140) !important; }
 [data-theme="dark"] .border-white\/10 { border-color: rgba(0,255,102,0.18) !important; }
 [data-theme="dark"] .from-indigo-700 { --tw-gradient-from: rgb(67,46,88) !important; }
+[data-theme="dark"] .from-blue-700 { --tw-gradient-from: rgb(0,126,140) !important; }
+[data-theme="dark"] .to-indigo-600 { --tw-gradient-to: rgb(106,73,139) !important; }
 [data-theme="dark"] .text-amber-300 { color: #ffcc00 !important; }
 [data-theme="dark"] .text-amber-700 { color: #ffcc00 !important; }
 [data-theme="dark"] .text-amber-800 { color: #ffcc00 !important; }

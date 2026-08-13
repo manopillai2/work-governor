@@ -924,7 +924,7 @@ export default function ChatPanel({
               disabled={
                 !input.trim() || isProcessing
               }
-              className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
             >
               {isProcessing
                 ? "Working..."

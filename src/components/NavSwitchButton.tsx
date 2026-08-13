@@ -38,7 +38,7 @@ export default function NavSwitchButton() {
   return (
     <Link
       href={onApplicationsRoute ? "/" : "/applications"}
-      className="inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
+      className="inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
     >
       {onApplicationsRoute ? <BackArrowIcon /> : <GridIcon />}
       {onApplicationsRoute ? "Control View" : "Application View"}
