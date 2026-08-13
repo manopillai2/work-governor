@@ -423,19 +423,9 @@ export default function ControlCard({
               {currentFocus}
             </span>
 
-            <span className="flex shrink-0 items-center gap-1.5">
-              <ControlStatusBadge
-                status={controlStatus}
-              />
-              {!isChecklistStatusRedundant(
-                controlStatus,
-                checklistStatus
-              ) ? (
-                <ChecklistStatusBadge
-                  status={checklistStatus}
-                />
-              ) : null}
-            </span>
+            <ControlStatusBadge
+              status={controlStatus}
+            />
           </div>
         </button>
 
@@ -919,30 +909,10 @@ function IconDownload() {
   );
 }
 
-// controlStatus is partly derived from checklistStatus
-// (deriveControlStatus in commandEngine.ts), so some pairings just
-// say the same thing twice next to each other -- "Checklist Review
-// Pending" control status always co-occurs with a "Review Pending"
-// checklist status, and a fully completed control commonly shows
-// "Completed" for both. Every other pairing carries real,
-// non-redundant information (e.g. "Needs Revision", or "Approved"
-// while the control itself is still "In Progress"), so only these
-// two exact overlaps are hidden.
-function isChecklistStatusRedundant(
-  controlStatus: ControlStatus,
-  checklistStatus: ChecklistStatus
-): boolean {
-  return (
-    checklistStatus === controlStatus ||
-    (controlStatus ===
-      "Checklist Review Pending" &&
-      checklistStatus === "Review Pending")
-  );
-}
-
-// Compact, prefix-free -- sits inline on the card header next to the
-// task-progress line rather than in its own labeled block, so the two
-// statuses that matter at a glance cost no extra header space.
+// Compact, sits inline on the card header next to the task-progress
+// line rather than in its own labeled block in the hamburger menu, so
+// it costs no extra header space. Just the one control status --
+// checklist status and QA score are intentionally not shown here.
 function ControlStatusBadge({
   status,
 }: {
@@ -968,35 +938,7 @@ function ControlStatusBadge({
     <span
       className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}
     >
-      {status}
-    </span>
-  );
-}
-
-function ChecklistStatusBadge({
-  status,
-}: {
-  status: ChecklistStatus;
-}) {
-  const classes: Record<
-    ChecklistStatus,
-    string
-  > = {
-    "Review Pending":
-      "bg-amber-100 text-amber-800",
-    Approved:
-      "bg-blue-100 text-blue-700",
-    "Needs Revision":
-      "bg-red-100 text-red-700",
-    Completed:
-      "bg-green-100 text-green-700",
-  };
-
-  return (
-    <span
-      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}
-    >
-      {status}
+      Status: {status}
     </span>
   );
 }
