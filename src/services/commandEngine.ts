@@ -1,3 +1,5 @@
+import { normalizeClientReferenceContext } from "./clientReference";
+
 export type HomeworkStatus = "Waiting" | "Completed";
 
 export type WorkflowStage =
@@ -1955,7 +1957,9 @@ function createControl(
     globalControlReference:
       globalControlReference || "",
 
-    clientContext: clientContext || "",
+    clientContext: normalizeClientReferenceContext(
+      clientContext || ""
+    ),
 
     evidenceDataGapAnalysis: "",
     evidenceDataGapAnalysisStale: false,

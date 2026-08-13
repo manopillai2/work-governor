@@ -10,6 +10,8 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import ThemeToggle from "@/components/ThemeToggle";
+import RainToggle from "@/components/RainToggle";
 
 export const metadata: Metadata = {
   title: "Control Governor -- Guide",
@@ -321,21 +323,28 @@ export default function GuidePage() {
       {/* Hero */}
       <div className="bg-gradient-to-br from-indigo-700 via-blue-700 to-cyan-600 text-white">
         <div className="mx-auto max-w-5xl px-6 py-14">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1 text-sm font-medium text-blue-100 transition hover:text-white"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M10 13L5 8L10 3"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            Back to the app
-          </Link>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1 text-sm font-medium text-blue-100 transition hover:text-white"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M10 13L5 8L10 3"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Back to the app
+            </Link>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <ThemeToggle />
+              <RainToggle />
+            </div>
+          </div>
 
           <h1 className="mt-4 text-4xl font-extrabold tracking-tight sm:text-5xl">
             Control Governor
@@ -367,7 +376,7 @@ export default function GuidePage() {
             Application-level context, evidence-vs-data summaries, and
             bulk actions (across every control on an application) live on
             a separate Applications page, one click away via the toggle
-            button next to each view's heading.
+            button next to each view&apos;s heading.
           </p>
 
           <p className="mt-4 text-xs font-medium text-blue-200">

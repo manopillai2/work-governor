@@ -445,9 +445,12 @@ const EVIDENCE_ARCHIVE_CHAR_BUDGET = 40_000;
 function formatEvidenceArchive(
   evidenceRows: EvidenceRow[],
   applications: Application[]
-): string {
+): { text: string; omittedCount: number } {
   if (evidenceRows.length === 0) {
-    return "No evidence documents have been uploaded yet.";
+    return {
+      text: "No evidence documents have been uploaded yet.",
+      omittedCount: 0,
+    };
   }
 
   const applicationNameById = new Map(
@@ -485,9 +488,10 @@ function formatEvidenceArchive(
       ? `\n\n(${omittedCount} older document(s) omitted here to stay within context budget -- still stored and can be referenced by name if the user asks specifically.)`
       : "";
 
-  return (
-    includedEntries.join("\n\n") + omittedNote
-  );
+  return {
+    text: includedEntries.join("\n\n") + omittedNote,
+    omittedCount,
+  };
 }
 
 function getCurrentDate(): string {
@@ -659,6 +663,7 @@ export async function POST(
     }
 
     let evidenceArchiveText = "";
+    let evidenceArchiveOmittedCount = 0;
 
     try {
       const evidenceRows = await db
@@ -679,11 +684,14 @@ export async function POST(
           desc(evidenceDocuments.uploadedAt)
         );
 
-      evidenceArchiveText =
-        formatEvidenceArchive(
-          evidenceRows,
-          applications
-        );
+      const archive = formatEvidenceArchive(
+        evidenceRows,
+        applications
+      );
+
+      evidenceArchiveText = archive.text;
+      evidenceArchiveOmittedCount =
+        archive.omittedCount;
     } catch (error) {
       console.error(
         "Unable to load stored evidence documents (continuing without them):",
@@ -1265,6 +1273,16 @@ Argos Design should cover:
 - remediation workflow;
 - retention.
 
+Every checklist you generate or regenerate -- initial creation,
+GENERATE_CONTEXTUAL_CHECKLISTS, or REGENERATE_CONTROL_CHECKLIST --
+must include at least one Argos Design task, even when no real
+data-source detail exists yet. When nothing concrete is known yet,
+that task is simply the work of finding out (for example "Identify
+the authoritative data source, collection method, and monitoring
+frequency needed to build repeatable Argos rule logic for this
+control") -- never omit the category entirely just because Argos
+design work hasn't started for this control yet.
+
 NEXT STEPS TASKS
 
 Next Steps should cover:
@@ -1467,6 +1485,43 @@ name over a specific numbered citation you are not confident is real.
 payload.controls[].clientContext is also required for every control —
 follow the CLIENT CONTROL REFERENCE CODES rules above (empty string
 unless the user's own message actually referenced one of those codes).
+
+MULTIPLE APPLICATIONS IN ONE MESSAGE
+
+A single user message — especially a bulk paste from a GRC tool or
+spreadsheet — can describe controls for more than one distinct
+application at once. Look for more than one distinct application name
+threaded through the control titles or fields (for example
+"... - Salesforce (CXT)" partway through the message and
+"... - Salesforce (Dynegy)" later in the same message). Only one
+CREATE_APPLICATION can be returned per message, so when you detect
+more than one application's worth of data in a single message:
+
+1. Still create the first application in full, exactly as normal.
+2. In payload.message, explicitly name every other application you
+   found in the same message that you did NOT create, and say
+   plainly that you can create it next — for example "Salesforce -
+   CXT was created with 6 controls. Your message also included
+   controls for Salesforce - Dynegy, which I haven't created yet —
+   say the word and I'll set that up next."
+
+Never silently drop the remaining application's data without
+mentioning it in payload.message. The user should never have to
+notice on their own that part of what they pasted was not acted on.
+
+NEVER SILENTLY LEAVE ANYTHING OUT
+
+This principle is not limited to the multiple-applications case above
+-- it applies to every response you give. Whenever you cannot fully
+act on or address everything in the user's message -- because it
+named more items than you could process in one command, a control or
+detail did not clearly match anything real, you ran out of room to
+finish something, or any other reason -- always say plainly, in
+payload.message, exactly what you did act on and exactly what you
+left out or couldn't do, in specific terms (name the item), and
+invite the user to ask for the rest. A confident-sounding response
+that quietly covers only part of the request is worse than an honest
+one that names the gap.
 
 UPDATE APPLICATION CONTEXT
 
@@ -2076,6 +2131,28 @@ QUESTIONS AND FEEDBACK
 Use RESPOND_ONLY for explanations, questions, feedback, and clarification.
 
 Do not modify data when the user asks why something happened.
+
+When the user asks why something they expected (an application, a
+control, a piece of data) does not exist or "was ignored," actually
+look for it — in the current message, in the conversation history you
+were given, and in CURRENT CONTROL GOVERNOR DATA — before answering.
+If you find it:
+
+- Explain concretely what happened in plain terms (for example: your
+  message included data for more than one application, and only one
+  application can be created per message, so the other one is still
+  pending; or: that content was in an earlier message that is no
+  longer part of what you can currently see).
+- Then offer to act on it now, naming the specific thing you found —
+  for example "Want me to create Salesforce - Dynegy now?" — not a
+  generic request for the user to re-explain from scratch.
+
+Never flatly assert that something "was not referenced" or "does not
+exist" unless you actually checked for it in what is visible to you
+and it genuinely is not there. If it might exist in an earlier part of
+the conversation you no longer have visibility into, say that honestly
+(for example "I don't see that in what I currently have — could you
+paste it again?") instead of denying it outright.
 
 HARD CONSTRAINT -- READ THIS LAST, IT OVERRIDES ANY HESITATION ABOVE
 
@@ -4034,11 +4111,39 @@ ${message}
       } as Command;
     }
 
+    // Deterministic, code-level warnings about anything left out of
+    // this turn -- never rely solely on the model choosing to mention
+    // it (see the RESPOND_ONLY/multi-application guidance above,
+    // which asks it to, but that is best-effort, not guaranteed).
+    const warnings: string[] = [];
+
+    if (evidenceArchiveOmittedCount > 0) {
+      warnings.push(
+        `${evidenceArchiveOmittedCount} older stored evidence/data document(s) were left out of what I could see this turn to stay within the context budget -- they're still stored and can be pulled in by name if you ask about them directly.`
+      );
+    }
+
+    const truncatedHistoryCount = history.filter(
+      (item) =>
+        typeof item.content === "string" &&
+        item.content.includes(
+          "[...truncated, "
+        )
+    ).length;
+
+    if (truncatedHistoryCount > 0) {
+      warnings.push(
+        `${truncatedHistoryCount} earlier message(s) in this conversation were too long to show me in full on this turn -- I'm only seeing the beginning of ${truncatedHistoryCount === 1 ? "it" : "them"}, so if this turn's answer seems to be missing something from later in ${truncatedHistoryCount === 1 ? "that message" : "those messages"}, paste the relevant part again.`
+      );
+    }
+
     return NextResponse.json({
       command,
 
       assistantMessage:
         rawCommand.payload.message,
+
+      warnings,
 
       usage: {
         inputTokens:

@@ -12,7 +12,7 @@ const STATUS_TAG: Record<string, string> = {
 };
 
 const CHARS =
-  "アイウエオカキクケコサシスセソタチツテト0123456789ABCDEFXYZ";
+  "MANOJ KUMAR";
 
 function MatrixRainCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -26,7 +26,7 @@ function MatrixRainCanvas() {
     let width = (canvas.width = canvas.offsetWidth);
     let height = (canvas.height = canvas.offsetHeight);
 
-    const fontSize = 16;
+    const fontSize = 8;
     let columns = Math.floor(width / fontSize);
     let drops = new Array(columns).fill(1);
 

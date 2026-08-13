@@ -16,10 +16,12 @@ import EvidenceUploadModal, {
   type EvidenceKind,
   type EvidenceUploadResult,
 } from "@/components/EvidenceUploadModal";
+import EvidenceReuseModal from "@/components/EvidenceReuseModal";
 import LearningNotifications, {
   type PendingClientReferenceLearning,
   type PendingLearning,
 } from "@/components/LearningNotifications";
+import OrphanedEvidenceModal from "@/components/OrphanedEvidenceModal";
 
 import {
   addApplicationNote,
@@ -29,6 +31,7 @@ import {
   findControl,
   inferTaskCategory,
   markTaskIrrelevant,
+  normalizeApplicationId,
   refreshControlState,
   renumberApplicationNoteIds,
   restoreTaskRelevance,
@@ -142,6 +145,13 @@ function withConfirmed(command: Command): Command {
   }
 }
 
+type StoredEvidenceDocument = {
+  id: string;
+  filename: string;
+  kind: "evidence" | "data";
+  extractedText: string;
+};
+
 const PROCESSING_SUMMARY_MAX_LENGTH = 90;
 
 // A short, honest echo of what the user actually asked for, shown
@@ -169,6 +179,7 @@ function summarizeForProgress(
 type AssistantApiResponse = {
   command?: Command;
   assistantMessage?: string;
+  warnings?: string[];
   error?: string;
 };
 
@@ -192,12 +203,16 @@ function createMessage(
   };
 }
 
-// Defense in depth: no chat message is expected to be this long since
-// evidence/data uploads use a short display message (see
-// handleEvidenceUploaded), but this guarantees history sent on any
-// future turn can never itself blow the assistant's prompt token
-// budget, regardless of what produced an oversized message.
-const HISTORY_ITEM_CHAR_CAP = 4000;
+// Bulk pastes from a GRC tool or spreadsheet (raw control exports
+// spanning multiple applications) routinely run 10-16k characters, and
+// the assistant needs that content still visible on a later turn to
+// answer "why was X ignored" honestly instead of denying X was ever
+// mentioned. High enough to keep realistic pastes intact; still a real
+// cap (evidence/data uploads use a short display message -- see
+// handleEvidenceUploaded -- so this only ever bounds manually typed or
+// pasted messages) so history sent on any future turn can't itself
+// blow the assistant's prompt token budget.
+const HISTORY_ITEM_CHAR_CAP = 20_000;
 
 function truncateForHistory(content: string): string {
   if (content.length <= HISTORY_ITEM_CHAR_CAP) {
@@ -678,6 +693,25 @@ export default function AppStateProvider({
     description: string;
     requiredPhrase: string;
     resolve: (confirmed: boolean) => void;
+  } | null>(null);
+
+  const [
+    pendingEvidenceReuse,
+    setPendingEvidenceReuse,
+  ] = useState<{
+    applicationName: string;
+    controlName: string;
+    documents: StoredEvidenceDocument[];
+    resolve: (apply: boolean) => void;
+  } | null>(null);
+
+  const [
+    pendingOrphanedEvidence,
+    setPendingOrphanedEvidence,
+  ] = useState<{
+    applicationName: string;
+    documents: StoredEvidenceDocument[];
+    resolve: (action: "reuse" | "delete") => void;
   } | null>(null);
 
   const [
@@ -1733,6 +1767,343 @@ export default function AppStateProvider({
     );
   }
 
+  async function fetchStoredEvidenceDocuments(
+    applicationId: string
+  ): Promise<StoredEvidenceDocument[]> {
+    try {
+      const response = await fetch(
+        `/api/evidence?applicationId=${encodeURIComponent(
+          applicationId
+        )}`
+      );
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const data = await response.json();
+
+      return Array.isArray(data.evidence)
+        ? data.evidence
+        : [];
+    } catch (error) {
+      console.error(
+        "Unable to check for stored evidence:",
+        error
+      );
+      return [];
+    }
+  }
+
+  // Same budgeting/tagging shape as handleEvidenceUploaded's aiMessage,
+  // reused here for evidence that was already on file before this
+  // control/application existed rather than just uploaded. Kept
+  // per-kind (never a mixed evidence+data batch) so NoteSource's single
+  // `kind` field -- shared by every note this turn produces -- stays
+  // accurate for every note it tags.
+  function buildStoredEvidenceReuseTurn(
+    applicationId: string,
+    controlName: string,
+    kind: "evidence" | "data",
+    documents: StoredEvidenceDocument[]
+  ): {
+    displayMessage: string;
+    aiMessage: string;
+    noteSource: NoteSource;
+  } {
+    const PER_DOCUMENT_CHAR_CAP = 100_000;
+    const COMBINED_CHAR_BUDGET = 300_000;
+
+    let remainingBudget = COMBINED_CHAR_BUDGET;
+    const truncatedFilenames: string[] = [];
+    const skippedFilenames: string[] = [];
+
+    const documentsBlock = documents
+      .map((document) => {
+        if (remainingBudget <= 0) {
+          skippedFilenames.push(
+            document.filename
+          );
+          return null;
+        }
+
+        const cap = Math.min(
+          PER_DOCUMENT_CHAR_CAP,
+          remainingBudget
+        );
+
+        const wasTruncated =
+          document.extractedText.length > cap;
+
+        const text = wasTruncated
+          ? document.extractedText.slice(0, cap)
+          : document.extractedText;
+
+        remainingBudget -= text.length;
+
+        if (wasTruncated) {
+          truncatedFilenames.push(
+            document.filename
+          );
+        }
+
+        return `--- Document: "${document.filename}"${wasTruncated ? " (truncated for this pass -- full text remains stored for future Q&A)" : ""} ---\n${text}`;
+      })
+      .filter(
+        (entry): entry is string =>
+          entry !== null
+      )
+      .join("\n\n");
+
+    const sourceDescription =
+      kind === "evidence"
+        ? "evidence document(s)"
+        : "real application data file(s)";
+
+    const budgetCaveat =
+      truncatedFilenames.length > 0 ||
+      skippedFilenames.length > 0
+        ? ` Note: ${[
+            truncatedFilenames.length > 0
+              ? `${truncatedFilenames.join(", ")} ${truncatedFilenames.length === 1 ? "was" : "were"} only partially read this pass`
+              : null,
+            skippedFilenames.length > 0
+              ? `${skippedFilenames.join(", ")} ${skippedFilenames.length === 1 ? "was" : "were"} not read at all this pass`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(
+              "; "
+            )} due to size -- say so explicitly in any note or summary you write about them rather than treating them as fully covered.`
+        : "";
+
+    const aiMessage = `Previously stored ${sourceDescription} already on file for ${applicationId} may be relevant to the control just added, "${controlName}". Treat this the same as an application team reply: read through it and match every distinct fact to the checklist item(s) it answers, for control "${controlName}" only. For every note you write, end it with a tag naming which document it came from, in this exact form: [Attachment: <filename>].${budgetCaveat}\n\n${documentsBlock}`;
+
+    const filenames = documents
+      .map((document) => document.filename)
+      .join(", ");
+
+    const displayMessage = `Applied ${documents.length} previously stored ${sourceDescription} on ${applicationId} to the new control "${controlName}": ${filenames}.${budgetCaveat}`;
+
+    const documentsByFilename: Record<
+      string,
+      string
+    > = {};
+
+    for (const document of documents) {
+      documentsByFilename[document.filename] =
+        document.id;
+    }
+
+    return {
+      displayMessage,
+      aiMessage,
+      noteSource: { kind, documentsByFilename },
+    };
+  }
+
+  // Fires after every command as a best-effort, non-blocking UX prompt
+  // -- never throws, never blocks the command the user just asked for.
+  // Two scenarios:
+  //  1. ADD_CONTROL on an application that already has evidence/data on
+  //     file -- offer to apply it to the newly added control.
+  //  2. CREATE_APPLICATION that resurrects an id with orphaned
+  //     evidence/data left over from a previously deleted application
+  //     of the same name -- offer to reuse it or delete it for good.
+  async function checkForStoredEvidence(
+    command: Command,
+    resultApplications: Application[]
+  ) {
+    if (command.action === "ADD_CONTROL") {
+      const applicationId = normalizeApplicationId(
+        command.payload.application
+      );
+
+      const controlName = String(
+        command.payload.control ?? ""
+      ).trim();
+
+      if (!controlName) {
+        return;
+      }
+
+      // applications here is the pre-command snapshot this handleSend
+      // call started with (setApplications hasn't re-rendered this
+      // closure yet) -- the same value executeCommand itself was
+      // called with just above. If the control already existed before
+      // this command ran, ADD_CONTROL was a no-op and there's nothing
+      // new to offer evidence for.
+      const applicationBefore = findApplication(
+        applications,
+        applicationId
+      );
+
+      if (
+        applicationBefore &&
+        findControl(
+          applicationBefore.controls,
+          controlName
+        )
+      ) {
+        return;
+      }
+
+      const applicationAfter = findApplication(
+        resultApplications,
+        applicationId
+      );
+
+      if (
+        !applicationAfter ||
+        !findControl(
+          applicationAfter.controls,
+          controlName
+        )
+      ) {
+        return;
+      }
+
+      const documents =
+        await fetchStoredEvidenceDocuments(
+          applicationId
+        );
+
+      if (documents.length === 0) {
+        return;
+      }
+
+      const apply = await new Promise<boolean>(
+        (resolve) => {
+          setPendingEvidenceReuse({
+            applicationName:
+              applicationAfter.name,
+            controlName,
+            documents,
+            resolve,
+          });
+        }
+      );
+
+      setPendingEvidenceReuse(null);
+
+      if (!apply) {
+        return;
+      }
+
+      const documentsByKind = new Map<
+        "evidence" | "data",
+        StoredEvidenceDocument[]
+      >();
+
+      for (const document of documents) {
+        const group =
+          documentsByKind.get(document.kind) ??
+          [];
+        group.push(document);
+        documentsByKind.set(
+          document.kind,
+          group
+        );
+      }
+
+      for (const [
+        kind,
+        group,
+      ] of documentsByKind) {
+        const turn = buildStoredEvidenceReuseTurn(
+          applicationId,
+          controlName,
+          kind,
+          group
+        );
+
+        await handleSend(
+          turn.displayMessage,
+          turn.noteSource,
+          turn.aiMessage
+        );
+      }
+
+      return;
+    }
+
+    if (command.action === "CREATE_APPLICATION") {
+      const applicationId = normalizeApplicationId(
+        command.payload.application
+      );
+
+      // Confirmed explicitly rather than assumed: only treat this as
+      // "recreated with orphaned evidence" when the id genuinely did
+      // not exist before this command (commandEngine's own
+      // CREATE_APPLICATION handler already refuses to recreate an
+      // existing id, but this check doesn't rely on that).
+      const alreadyExisted = applications.some(
+        (application) =>
+          application.id === applicationId
+      );
+
+      if (alreadyExisted) {
+        return;
+      }
+
+      const applicationAfter = findApplication(
+        resultApplications,
+        applicationId
+      );
+
+      if (!applicationAfter) {
+        return;
+      }
+
+      const documents =
+        await fetchStoredEvidenceDocuments(
+          applicationId
+        );
+
+      if (documents.length === 0) {
+        return;
+      }
+
+      const action = await new Promise<
+        "reuse" | "delete"
+      >((resolve) => {
+        setPendingOrphanedEvidence({
+          applicationName: applicationAfter.name,
+          documents,
+          resolve,
+        });
+      });
+
+      setPendingOrphanedEvidence(null);
+
+      if (action !== "delete") {
+        return;
+      }
+
+      const requiredPhrase = `yes, delete stored files for ${applicationAfter.name}`;
+
+      const confirmed = await new Promise<boolean>(
+        (resolve) => {
+          setPendingAdminConfirmation({
+            description: `permanently delete ${documents.length} old evidence file${documents.length === 1 ? "" : "s"} for ${applicationAfter.name}`,
+            requiredPhrase,
+            resolve,
+          });
+        }
+      );
+
+      setPendingAdminConfirmation(null);
+
+      if (!confirmed) {
+        return;
+      }
+
+      for (const document of documents) {
+        await handleDeleteEvidence(document.id);
+      }
+    }
+  }
+
   async function handleSend(
     userInput: string,
     noteSource?: NoteSource,
@@ -1819,6 +2190,26 @@ export default function AppStateProvider({
       if (!data.command) {
         throw new Error(
           "The assistant did not return a valid command."
+        );
+      }
+
+      // Deterministic, code-detected warnings (evidence archive
+      // omissions, truncated history) -- surfaced regardless of what
+      // command follows, and regardless of whether the model itself
+      // chose to mention it in its own reply.
+      if (
+        data.warnings &&
+        data.warnings.length > 0
+      ) {
+        setMessages(
+          (currentMessages) => [
+            ...currentMessages,
+
+            createMessage(
+              "assistant",
+              `⚠️ ${data.warnings!.join(" ")}`
+            ),
+          ]
         );
       }
 
@@ -2164,6 +2555,11 @@ export default function AppStateProvider({
         data.command,
         result.applications
       );
+
+      void checkForStoredEvidence(
+        data.command,
+        result.applications
+      );
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -2270,6 +2666,47 @@ export default function AppStateProvider({
           onCancel={() =>
             pendingAdminConfirmation.resolve(
               false
+            )
+          }
+        />
+      ) : null}
+
+      {pendingEvidenceReuse ? (
+        <EvidenceReuseModal
+          applicationName={
+            pendingEvidenceReuse.applicationName
+          }
+          controlName={
+            pendingEvidenceReuse.controlName
+          }
+          documents={
+            pendingEvidenceReuse.documents
+          }
+          onApply={() =>
+            pendingEvidenceReuse.resolve(true)
+          }
+          onSkip={() =>
+            pendingEvidenceReuse.resolve(false)
+          }
+        />
+      ) : null}
+
+      {pendingOrphanedEvidence ? (
+        <OrphanedEvidenceModal
+          applicationName={
+            pendingOrphanedEvidence.applicationName
+          }
+          documents={
+            pendingOrphanedEvidence.documents
+          }
+          onReuse={() =>
+            pendingOrphanedEvidence.resolve(
+              "reuse"
+            )
+          }
+          onDelete={() =>
+            pendingOrphanedEvidence.resolve(
+              "delete"
             )
           }
         />

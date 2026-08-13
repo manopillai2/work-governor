@@ -14,6 +14,8 @@ import { useState } from "react";
 import Link from "next/link";
 
 import ProgressSummary from "@/components/ProgressSummary";
+import ThemeToggle from "@/components/ThemeToggle";
+import RainToggle from "@/components/RainToggle";
 
 type HeaderProps = {
   progress?: {
@@ -53,19 +55,26 @@ export default function Header({ progress }: HeaderProps) {
   if (collapsed) {
     return (
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-[1900px] items-center gap-2 px-5 py-2">
-          <Link href="/">
-            <h1 className="text-lg font-bold leading-tight text-slate-900">
-              Control Governor
-            </h1>
-          </Link>
-          <button
-            onClick={() => setCollapsed(false)}
-            title="Expand header"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700"
-          >
-            <ChevronIcon collapsed={collapsed} />
-          </button>
+        <div className="mx-auto flex w-full max-w-[1900px] items-center justify-between gap-2 px-5 py-2">
+          <div className="flex items-center gap-2">
+            <Link href="/">
+              <h1 className="text-lg font-bold leading-tight text-slate-900">
+                Control Governor
+              </h1>
+            </Link>
+            <button
+              onClick={() => setCollapsed(false)}
+              title="Expand header"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700"
+            >
+              <ChevronIcon collapsed={collapsed} />
+            </button>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeToggle />
+            <RainToggle />
+          </div>
         </div>
       </header>
     );
@@ -137,11 +146,14 @@ export default function Header({ progress }: HeaderProps) {
           </p>
         </div>
 
-        {progress ? (
-          <div className="flex items-center justify-center xl:justify-end">
-            <ProgressSummary {...progress} />
+        <div className="flex min-w-0 flex-col items-center gap-2 xl:items-end">
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeToggle />
+            <RainToggle />
           </div>
-        ) : null}
+
+          {progress ? <ProgressSummary {...progress} /> : null}
+        </div>
       </div>
     </header>
   );

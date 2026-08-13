@@ -2,14 +2,19 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import ThemeToggle from "@/components/ThemeToggle";
 import MatrixRainBackground from "@/components/MatrixRainBackground";
 import AppStateProvider from "@/components/AppStateProvider";
 
 const THEME_INIT_SCRIPT = `
 try {
   var t = localStorage.getItem('control-governor-theme');
-  if (t === 'rain') document.documentElement.setAttribute('data-theme', 'rain');
+  if (t === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    var r = localStorage.getItem('control-governor-rain-effect');
+    if (r === 'on' || r === null) {
+      document.documentElement.setAttribute('data-rain', 'on');
+    }
+  }
 } catch (e) {}
 `;
 
@@ -50,7 +55,6 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
-          <ThemeToggle />
           <MatrixRainBackground />
           <AppStateProvider>{children}</AppStateProvider>
         </ThemeProvider>

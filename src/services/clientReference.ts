@@ -27,3 +27,28 @@ export function formatClientReferenceEntry(
 ): string {
   return `${entry.code} - ${entry.title}`;
 }
+
+// Deterministic safety net: the assistant is instructed to always
+// write the full "CODE - title" form, but it doesn't always comply
+// (seen in practice -- some controls ended up with just the bare
+// code). Since the fixed table is a static, known mapping, expand a
+// bare code here instead of relying solely on the model getting it
+// right every time. Values already containing a description, or codes
+// not in this fixed table (e.g. a learned code only known to the
+// assistant via the database), are left untouched.
+export function normalizeClientReferenceContext(
+  raw: string
+): string {
+  const trimmed = raw.trim();
+
+  if (!trimmed || trimmed.includes(" - ")) {
+    return trimmed;
+  }
+
+  const match = CLIENT_REFERENCE_TABLE.find(
+    (entry) =>
+      entry.code.toLowerCase() === trimmed.toLowerCase()
+  );
+
+  return match ? formatClientReferenceEntry(match) : trimmed;
+}
