@@ -215,7 +215,7 @@ function IconBulb() {
 
 function ArrowDown() {
   return (
-    <div className="flex justify-center py-1">
+    <div className="relative flex justify-center py-1">
       <svg width="20" height="24" viewBox="0 0 20 24" fill="none">
         <path
           d="M10 0V18M10 18L3 11M10 18L17 11"
@@ -225,13 +225,14 @@ function ArrowDown() {
           strokeLinejoin="round"
         />
       </svg>
+      <span className="guide-flow-dot guide-flow-dot-y" />
     </div>
   );
 }
 
 function ArrowRight() {
   return (
-    <div className="hidden items-center justify-center px-1 sm:flex">
+    <div className="relative hidden items-center justify-center px-1 sm:flex">
       <svg width="24" height="20" viewBox="0 0 24 20" fill="none">
         <path
           d="M0 10H18M18 10L11 3M18 10L11 17"
@@ -241,6 +242,7 @@ function ArrowRight() {
           strokeLinejoin="round"
         />
       </svg>
+      <span className="guide-flow-dot guide-flow-dot-x" />
     </div>
   );
 }
@@ -319,10 +321,10 @@ const QA_LEVELS: { level: string; description: string; tone: Tone }[] = [
 
 export default function GuidePage() {
   return (
-    <main className="min-h-full bg-slate-50">
+    <main className="h-screen snap-y snap-proximity overflow-y-auto scroll-smooth bg-slate-50">
       {/* Hero */}
-      <div className="bg-gradient-to-br from-indigo-700 via-blue-700 to-cyan-600 text-white">
-        <div className="mx-auto max-w-5xl px-6 py-14">
+      <div className="snap-start bg-gradient-to-br from-indigo-700 via-blue-700 to-cyan-600 text-white">
+        <div className="mx-auto max-w-7xl px-6 py-14">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/"
@@ -386,9 +388,9 @@ export default function GuidePage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-5xl space-y-16 px-6 py-14">
+      <div className="mx-auto max-w-7xl space-y-16 px-6 py-14">
         {/* 1. Architecture */}
-        <section id="architecture">
+        <section id="architecture" className="snap-start scroll-mt-4">
           <SectionHeading
             index="1"
             title="Architecture"
@@ -492,7 +494,7 @@ export default function GuidePage() {
         </section>
 
         {/* 2. Objectives */}
-        <section id="objectives">
+        <section id="objectives" className="snap-start scroll-mt-4">
           <SectionHeading
             index="2"
             title="Permanent Assignment Objective"
@@ -529,7 +531,7 @@ export default function GuidePage() {
         </section>
 
         {/* 3. Checklist generation priority */}
-        <section id="priority">
+        <section id="priority" className="snap-start scroll-mt-4">
           <SectionHeading
             index="3"
             title="Checklist Generation Priority"
@@ -581,7 +583,7 @@ export default function GuidePage() {
         </section>
 
         {/* 4. Task categories */}
-        <section id="categories">
+        <section id="categories" className="snap-start scroll-mt-4">
           <SectionHeading
             index="4"
             title="Checklist Task Categories"
@@ -634,7 +636,7 @@ export default function GuidePage() {
         </section>
 
         {/* 5. Functions */}
-        <section id="functions">
+        <section id="functions" className="snap-start scroll-mt-4">
           <SectionHeading
             index="5"
             title="Functions &amp; Actions"
@@ -732,7 +734,7 @@ export default function GuidePage() {
         </section>
 
         {/* 6. QA rubric */}
-        <section id="qa-rubric">
+        <section id="qa-rubric" className="snap-start scroll-mt-4">
           <SectionHeading
             index="6"
             title="QA Score Rubric"
@@ -760,7 +762,7 @@ export default function GuidePage() {
         </section>
 
         {/* 7. Data model */}
-        <section id="data-model">
+        <section id="data-model" className="snap-start scroll-mt-4">
           <SectionHeading
             index="7"
             title="Data Model"

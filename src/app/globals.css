@@ -431,3 +431,67 @@ select:focus {
 [data-theme="dark"] .hover\:text-slate-200:hover { color: #a9ffce !important; }
 [data-theme="dark"] .hover\:text-slate-700:hover { color: #5dffa0 !important; }
 [data-theme="dark"] .hover\:text-white:hover { color: #c8ffdf !important; }
+
+/* ============================================================
+   Guide page: animated architecture-diagram flow dots
+   ------------------------------------------------------------
+   A small traveling pulse along each connector arrow in the
+   Architecture diagram, conveying "data flows through these
+   steps" the way an animated product-explainer would, without
+   pulling in an animation library for two keyframe rules.
+   ============================================================ */
+:root {
+  --guide-flow-dot: #2563eb;
+  --guide-flow-glow: rgba(37, 99, 235, 0.85);
+}
+
+[data-theme="dark"] {
+  --guide-flow-dot: #39ff6a;
+  --guide-flow-glow: rgba(57, 255, 106, 0.85);
+}
+
+.guide-flow-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--guide-flow-dot);
+  box-shadow: 0 0 6px 2px var(--guide-flow-glow);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.guide-flow-dot-x {
+  top: 50%;
+  left: 3px;
+  transform: translateY(-50%);
+  animation: guide-flow-x 2.4s ease-in-out infinite;
+}
+
+.guide-flow-dot-y {
+  left: 50%;
+  top: 2px;
+  transform: translateX(-50%);
+  animation: guide-flow-y 2.4s ease-in-out infinite;
+}
+
+@keyframes guide-flow-x {
+  0% { left: 3px; opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { left: 20px; opacity: 0; }
+}
+
+@keyframes guide-flow-y {
+  0% { top: 2px; opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { top: 20px; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-flow-dot {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+}
