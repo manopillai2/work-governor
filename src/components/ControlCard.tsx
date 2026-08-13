@@ -14,6 +14,8 @@ import ReactMarkdown, {
 import remarkGfm from "remark-gfm";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
+import HamburgerIcon from "@/components/HamburgerIcon";
+import PlusMinusIcon from "@/components/PlusMinusIcon";
 import { noteSourceLabel } from "@/services/notes";
 import { generateControlSummaryPdf } from "@/services/exportReport";
 import type {
@@ -363,7 +365,13 @@ export default function ControlCard({
   }, [relevantTasks]);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div
+      className={`overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md ${
+        expanded
+          ? "border-slate-200 border-l-4 border-l-blue-500"
+          : "border-slate-200"
+      }`}
+    >
       <div className="flex w-full items-start justify-between gap-4 p-4 transition hover:bg-slate-50">
         <button
           type="button"
@@ -425,9 +433,9 @@ export default function ControlCard({
                 ? "Collapse control"
                 : "Expand control"
             }
-            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-lg text-slate-500 hover:bg-slate-100"
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-slate-500 transition hover:bg-slate-100"
           >
-            {expanded ? "−" : "+"}
+            <PlusMinusIcon expanded={expanded} />
           </button>
 
           <button
@@ -440,9 +448,9 @@ export default function ControlCard({
             }
             aria-expanded={menuOpen}
             aria-label="Control actions"
-            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-slate-500 hover:bg-slate-100"
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-slate-500 transition hover:bg-slate-100"
           >
-            ☰
+            <HamburgerIcon />
           </button>
 
           {menuOpen && menuPosition

@@ -140,7 +140,7 @@ function SummaryTile({
   tone = "default",
   onClick,
 }: SummaryTileProps) {
-  const toneClasses = `rounded-lg border px-2.5 py-1.5 text-center leading-tight ${TONE_CLASSES[tone]}`;
+  const toneClasses = `rounded-lg border px-2.5 py-1.5 text-center leading-tight shadow-sm ${TONE_CLASSES[tone]}`;
 
   const content = (
     <>
@@ -165,7 +165,7 @@ function SummaryTile({
       type="button"
       onClick={onClick}
       title={`Show ${label}`}
-      className={`${toneClasses} cursor-pointer transition hover:brightness-95 hover:shadow-sm`}
+      className={`${toneClasses} cursor-pointer transition hover:-translate-y-0.5 hover:brightness-95 hover:shadow-md`}
     >
       {content}
     </button>

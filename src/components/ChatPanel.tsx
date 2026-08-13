@@ -665,7 +665,11 @@ export default function ChatPanel({
             </p>
           </div>
 
-          <span className="rounded-full border border-emerald-900 bg-emerald-950/60 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
+          <span className="flex items-center gap-1.5 rounded-full border border-emerald-900 bg-emerald-950/60 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
             Claude connected
           </span>
         </div>
@@ -852,7 +856,20 @@ export default function ChatPanel({
                   title="Attach evidence or real application data (Word, Excel, PowerPoint, PDF, CSV, JSON, or text)"
                   className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  📎
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <path
+                      d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
 
                 {showAttachChooser ? (

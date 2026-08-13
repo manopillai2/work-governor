@@ -31,6 +31,26 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Applied globally rather than per-component -- every text input,
+   textarea, and select already sets outline-none plus a border-color
+   change on focus, so layering one consistent glow ring here covers
+   every form control in the app without touching dozens of files
+   individually, and can never drift out of sync with a new one added
+   later. Buttons keep the browser's default focus-visible outline
+   (not overridden here) since a glow ring reads oddly on the app's
+   many pill/circle icon buttons. */
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+select:focus {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):focus,
+[data-theme="dark"] textarea:focus,
+[data-theme="dark"] select:focus {
+  box-shadow: 0 0 0 3px rgba(10, 255, 65, 0.3);
+}
+
 /* ============================================================
    Light theme
    ------------------------------------------------------------

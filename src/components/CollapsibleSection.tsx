@@ -2,6 +2,8 @@
 
 import { useState, type ReactNode } from "react";
 
+import PlusMinusIcon from "./PlusMinusIcon";
+
 type Theme = "light" | "dark";
 type Tint = "default" | "accent" | "warning";
 
@@ -105,7 +107,7 @@ export default function CollapsibleSection({
 
   return (
     <section
-      className={`overflow-hidden rounded-xl border ${CONTAINER_CLASSES[theme][tint]}`}
+      className={`overflow-hidden rounded-xl border shadow-sm ${CONTAINER_CLASSES[theme][tint]}`}
     >
       <div className="flex w-full items-center gap-3 px-4 py-2">
         <button
@@ -146,7 +148,7 @@ export default function CollapsibleSection({
             }
             className={`flex h-5 w-5 items-center justify-center rounded-full border text-xs ${TOGGLE_CLASSES[theme]}`}
           >
-            {open ? "−" : "+"}
+            <PlusMinusIcon expanded={open} />
           </button>
         </div>
       </div>

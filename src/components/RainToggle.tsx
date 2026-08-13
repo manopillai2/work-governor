@@ -2,6 +2,21 @@
 
 import { useTheme } from "./ThemeProvider";
 
+function DropletIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="12" height="13" viewBox="0 0 14 15" fill="none">
+      <path
+        d="M7 1.5C7 1.5 2.5 7.7 2.5 10.6A4.5 4.5 0 0 0 11.5 10.6C11.5 7.7 7 1.5 7 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+        fill={filled ? "currentColor" : "none"}
+        fillOpacity={filled ? 0.35 : 0}
+      />
+    </svg>
+  );
+}
+
 // Only meaningful inside the dark theme -- lets you view its dark green
 // palette with or without the animated rain. Hidden entirely in the
 // light theme, which doesn't support the rain effect at all.
@@ -22,7 +37,7 @@ export default function RainToggle() {
           : "Add the rain effect"
       }
     >
-      <span>{rainEffectEnabled ? "🌂" : "🌧"}</span>
+      <DropletIcon filled={rainEffectEnabled} />
       {rainEffectEnabled ? "Remove Rain" : "Add Rain"}
     </button>
   );

@@ -13,6 +13,7 @@ import {
   type ApplicationFilterState,
   EMPTY_APPLICATION_FILTERS,
 } from "@/services/applicationFilters";
+import HamburgerIcon from "@/components/HamburgerIcon";
 
 const FRAMEWORK_OPTIONS: Framework[] = [
   "SOX",
@@ -70,19 +71,6 @@ function chipClass(selected: boolean): string {
       ? "border-blue-500 bg-blue-950 text-blue-200"
       : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
   }`;
-}
-
-function HamburgerIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-      <path
-        d="M1 3h12M3.5 7h7M6 11h2"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 }
 
 type FilterOption<T extends string> = {
@@ -173,7 +161,7 @@ export default function FilterBar({
     );
 
   return (
-    <div className="space-y-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
+    <div className="space-y-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="text"

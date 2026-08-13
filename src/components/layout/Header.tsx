@@ -80,11 +80,11 @@ export default function Header({ progress }: HeaderProps) {
 
   if (collapsed) {
     return (
-      <header className="border-b border-slate-200 bg-white">
+      <header className="border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex w-full max-w-[1900px] items-center justify-between gap-2 px-5 py-2">
           <div className="flex items-center gap-2">
             <Link href="/">
-              <h1 className="text-lg font-bold leading-tight text-slate-900">
+              <h1 className="bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-lg font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0]">
                 Control Governor
               </h1>
             </Link>
@@ -107,14 +107,14 @@ export default function Header({ progress }: HeaderProps) {
   }
 
   return (
-    <header className="border-b border-slate-200 bg-white">
+    <header className="border-b border-slate-200 bg-white shadow-sm">
       <div className="mx-auto grid w-full max-w-[1900px] gap-4 px-5 py-3 xl:grid-cols-[3fr_1fr] xl:items-stretch">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <Link href="/">
-                  <h1 className="text-2xl font-bold leading-tight text-slate-900">
+                  <h1 className="bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-2xl font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0]">
                     Control Governor
                   </h1>
                 </Link>

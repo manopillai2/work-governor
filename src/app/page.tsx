@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import ChatPanel from "@/components/ChatPanel";
+import ChevronMiniIcon from "@/components/ChevronMiniIcon";
 import ControlCard from "@/components/ControlCard";
 import FilterBar from "@/components/FilterBar";
 import Header from "@/components/layout/Header";
@@ -122,7 +123,7 @@ export default function Home() {
         >
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
             <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
-              <h2 className="text-2xl font-bold text-white">
+              <h2 className="text-2xl font-bold tracking-tight text-white">
                 Controls
               </h2>
 
@@ -378,9 +379,7 @@ export default function Home() {
                 title="Expand chat"
                 className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
               >
-                <span className="text-lg">
-                  ‹
-                </span>
+                <ChevronMiniIcon direction="left" />
                 <span className="[writing-mode:vertical-rl] text-xs font-medium tracking-wide">
                   Chat
                 </span>
@@ -394,9 +393,10 @@ export default function Home() {
                       setIsChatCollapsed(true)
                     }
                     title="Collapse chat"
-                    className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200"
                   >
-                    Collapse ›
+                    Collapse
+                    <ChevronMiniIcon direction="right" />
                   </button>
                 </div>
 

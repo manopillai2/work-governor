@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import ApplicationDetail from "@/components/ApplicationDetail";
 import ChatPanel from "@/components/ChatPanel";
+import ChevronMiniIcon from "@/components/ChevronMiniIcon";
 import ContextStatusBadge from "@/components/ContextStatusBadge";
 import Header from "@/components/layout/Header";
 import NavSwitchButton from "@/components/NavSwitchButton";
@@ -32,13 +33,13 @@ function ApplicationTile({
       type="button"
       onClick={onSelect}
       aria-current={isSelected}
-      className={`block w-full overflow-hidden rounded-xl border p-4 text-left transition ${
+      className={`block w-full overflow-hidden rounded-xl border p-4 text-left shadow-sm transition ${
         isSelected
-          ? "border-blue-500 bg-slate-800"
-          : "border-slate-700 bg-slate-900 hover:bg-slate-800/70"
+          ? "border-blue-500 bg-slate-800 shadow-md"
+          : "border-slate-700 bg-slate-900 hover:bg-slate-800/70 hover:shadow-md"
       }`}
     >
-      <h3 className="text-xl font-bold text-white">
+      <h3 className="text-xl font-bold tracking-tight text-white">
         {appName}
         {context ? (
           <span className="ml-2 text-base font-normal text-slate-400">
@@ -133,7 +134,7 @@ export default function ApplicationsPage() {
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
             <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-bold text-white">
+                <h2 className="text-2xl font-bold tracking-tight text-white">
                   Applications
                 </h2>
 
@@ -295,9 +296,7 @@ export default function ApplicationsPage() {
                 title="Expand chat"
                 className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
               >
-                <span className="text-lg">
-                  ‹
-                </span>
+                <ChevronMiniIcon direction="left" />
                 <span className="[writing-mode:vertical-rl] text-xs font-medium tracking-wide">
                   Chat
                 </span>
@@ -311,9 +310,10 @@ export default function ApplicationsPage() {
                       setIsChatCollapsed(true)
                     }
                     title="Collapse chat"
-                    className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200"
                   >
-                    Collapse ›
+                    Collapse
+                    <ChevronMiniIcon direction="right" />
                   </button>
                 </div>
 

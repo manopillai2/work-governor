@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import CloseIcon from "@/components/CloseIcon";
 import type { Application } from "@/services/commandEngine";
 
 type EvidenceDocumentRow = {
@@ -208,9 +209,9 @@ export default function AttachmentManagerModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="shrink-0 rounded-full border border-slate-700 px-2.5 py-1 text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+            className="flex shrink-0 items-center justify-center rounded-full border border-slate-700 px-2.5 py-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
           >
-            ✕
+            <CloseIcon />
           </button>
         </div>
 
