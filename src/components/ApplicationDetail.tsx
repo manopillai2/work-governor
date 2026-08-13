@@ -328,6 +328,17 @@ export default function ApplicationDetail({
         </CollapsibleSection>
 
         <CollapsibleSection
+          title="Access & Credentials Profile"
+          description="Every 'Access' checklist item across this application's controls, in one place -- the permission sets you've asked for or already hold, so you can line them up against one shared credential for real-time Argos pulls."
+          theme="dark"
+          tint="accent"
+        >
+          <AccessCredentialsPanel
+            controls={controls}
+          />
+        </CollapsibleSection>
+
+        <CollapsibleSection
           title="Argos Rule Logic"
           description="Every control's monitoring objective for this application, in one place."
           theme="dark"
@@ -783,6 +794,96 @@ function WorkProgressSummaryPanel({
           </p>
         </div>
       ))}
+    </div>
+  );
+}
+
+function AccessCredentialsPanel({
+  controls,
+}: {
+  controls: ComplianceControl[];
+}) {
+  const controlsWithAccessTasks = controls
+    .map((control) => ({
+      control,
+      accessTasks: control.nextTasks.filter(
+        (task) =>
+          task.category === "Access" &&
+          !task.irrelevant
+      ),
+    }))
+    .filter(
+      ({ accessTasks }) => accessTasks.length > 0
+    );
+
+  if (controlsWithAccessTasks.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No access or credential asks have come up
+        yet for this application&apos;s controls.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {controlsWithAccessTasks.map(
+        ({ control, accessTasks }) => (
+          <div
+            key={control.id}
+            className="rounded-lg border border-slate-800 bg-slate-900 p-3"
+          >
+            <span className="font-medium text-slate-100">
+              {control.name}
+            </span>
+
+            <ul className="mt-2 space-y-2">
+              {accessTasks.map((task) => (
+                <li key={task.id} className="text-sm">
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                        task.completed
+                          ? "bg-emerald-500"
+                          : "bg-slate-600"
+                      }`}
+                    />
+                    <span
+                      className={
+                        task.completed
+                          ? "text-slate-400 line-through"
+                          : "text-slate-200"
+                      }
+                    >
+                      {task.text}
+                    </span>
+                  </div>
+
+                  {task.notes.length > 0 ? (
+                    <ul className="ml-4 mt-1 space-y-1 border-l border-slate-700 pl-3">
+                      {task.notes.map((note) => (
+                        <li
+                          key={note.id}
+                          className="text-xs leading-5 text-slate-400"
+                        >
+                          {note.text}
+                          {noteSourceLabel(note) ? (
+                            <span className="ml-1 text-slate-500">
+                              (
+                              {noteSourceLabel(note)}
+                              )
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      )}
     </div>
   );
 }
