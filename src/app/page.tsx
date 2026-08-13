@@ -11,10 +11,8 @@ import { useAppState } from "@/components/AppStateProvider";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
 
 import {
-  EMPTY_APPLICATION_FILTERS,
   filterApplications,
   toFlatControlEntries,
-  type ApplicationFilterState,
 } from "@/services/applicationFilters";
 import { splitApplicationName } from "@/services/applicationName";
 
@@ -29,6 +27,9 @@ export default function Home() {
     retryLoad,
     progress,
 
+    filters,
+    setFilters,
+
     handleSend,
     toggleChecklistTask,
     addTaskNote,
@@ -42,13 +43,15 @@ export default function Home() {
     openEvidenceModal,
   } = useAppState();
 
-  const [filters, setFilters] =
-    useState<ApplicationFilterState>(
-      EMPTY_APPLICATION_FILTERS
-    );
-
   const [isChatCollapsed, setIsChatCollapsed] =
     useState(false);
+
+  // A single expanded control id, not a per-card useState -- expanding
+  // one control auto-collapses whichever other one was open.
+  const [
+    expandedControlId,
+    setExpandedControlId,
+  ] = useState<string | null>(null);
 
   const visibleApplications = useMemo(
     () =>
@@ -208,6 +211,19 @@ export default function Home() {
                         }) => (
                           <ControlCard
                             key={control.id}
+                            expanded={
+                              expandedControlId ===
+                              control.id
+                            }
+                            onToggleExpanded={() =>
+                              setExpandedControlId(
+                                (current) =>
+                                  current ===
+                                  control.id
+                                    ? null
+                                    : control.id
+                              )
+                            }
                             applicationTag={splitApplicationName(
                               application.name
                             )}

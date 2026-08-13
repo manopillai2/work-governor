@@ -5,6 +5,15 @@
 // Author         : Manoj
 // ======================================================
 
+export type ProgressTileKey =
+  | "applications"
+  | "controls"
+  | "notStarted"
+  | "inProgress"
+  | "completed"
+  | "needsAttention"
+  | "argosReady";
+
 type ProgressSummaryProps = {
   applications: number;
   controls: number;
@@ -13,6 +22,10 @@ type ProgressSummaryProps = {
   completed: number;
   needsAttention: number;
   argosReady: number;
+  // When omitted, tiles render as plain (non-interactive) figures --
+  // used before isLoaded (see page.tsx's placeholder progress) where
+  // clicking anything would have nothing real to filter yet.
+  onTileClick?: (key: ProgressTileKey) => void;
 };
 
 export default function ProgressSummary({
@@ -23,45 +36,74 @@ export default function ProgressSummary({
   completed,
   needsAttention,
   argosReady,
+  onTileClick,
 }: ProgressSummaryProps) {
   return (
     <div className="grid w-full grid-cols-4 gap-1.5 xl:w-auto">
       <SummaryTile
         label="Applications"
         value={applications}
+        onClick={
+          onTileClick &&
+          (() => onTileClick("applications"))
+        }
       />
 
       <SummaryTile
         label="Controls"
         value={controls}
+        onClick={
+          onTileClick &&
+          (() => onTileClick("controls"))
+        }
       />
 
       <SummaryTile
         label="Not Started"
         value={notStarted}
+        onClick={
+          onTileClick &&
+          (() => onTileClick("notStarted"))
+        }
       />
 
       <SummaryTile
         label="In Progress"
         value={inProgress}
+        onClick={
+          onTileClick &&
+          (() => onTileClick("inProgress"))
+        }
       />
 
       <SummaryTile
         label="Completed"
         value={completed}
         tone="success"
+        onClick={
+          onTileClick &&
+          (() => onTileClick("completed"))
+        }
       />
 
       <SummaryTile
         label="Needs Attention"
         value={needsAttention}
         tone="warning"
+        onClick={
+          onTileClick &&
+          (() => onTileClick("needsAttention"))
+        }
       />
 
       <SummaryTile
         label="Argos Ready"
         value={argosReady}
         tone="success"
+        onClick={
+          onTileClick &&
+          (() => onTileClick("argosReady"))
+        }
       />
     </div>
   );
@@ -71,6 +113,7 @@ type SummaryTileProps = {
   label: string;
   value: number;
   tone?: "default" | "success" | "warning";
+  onClick?: () => void;
 };
 
 const TONE_CLASSES: Record<
@@ -95,11 +138,12 @@ function SummaryTile({
   label,
   value,
   tone = "default",
+  onClick,
 }: SummaryTileProps) {
-  return (
-    <div
-      className={`rounded-lg border px-2.5 py-1.5 text-center leading-tight ${TONE_CLASSES[tone]}`}
-    >
+  const toneClasses = `rounded-lg border px-2.5 py-1.5 text-center leading-tight ${TONE_CLASSES[tone]}`;
+
+  const content = (
+    <>
       <p
         className={`text-lg font-bold ${TONE_VALUE_CLASSES[tone]}`}
       >
@@ -109,6 +153,21 @@ function SummaryTile({
       <p className="whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-slate-500">
         {label}
       </p>
-    </div>
+    </>
+  );
+
+  if (!onClick) {
+    return <div className={toneClasses}>{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`Show ${label}`}
+      className={`${toneClasses} cursor-pointer transition hover:brightness-95 hover:shadow-sm`}
+    >
+      {content}
+    </button>
   );
 }

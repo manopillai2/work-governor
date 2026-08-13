@@ -1,16 +1,29 @@
 import type {
   Application,
+  ChecklistStatus,
   ComplianceControl,
   ControlStatus,
   Framework,
+  QaScoreLevel,
 } from "./commandEngine";
+import {
+  CLIENT_REFERENCE_TABLE,
+  type ClientReferenceEntry,
+} from "./clientReference";
 
 export type ApplicationFilterState = {
   search: string;
   applicationIds: string[];
   frameworks: Framework[];
   statuses: ControlStatus[];
+  checklistStatuses: ChecklistStatus[];
+  qaScores: QaScoreLevel[];
   clientCodes: string[];
+  // Composite quick filter (On Hold OR checklist Needs Revision) --
+  // can't be expressed as a plain facet-array intersection since it
+  // spans two different fields with an OR between them, so it gets
+  // its own flag rather than living in `statuses`/`checklistStatuses`.
+  needsAttentionOnly: boolean;
 };
 
 export const EMPTY_APPLICATION_FILTERS: ApplicationFilterState =
@@ -19,7 +32,10 @@ export const EMPTY_APPLICATION_FILTERS: ApplicationFilterState =
     applicationIds: [],
     frameworks: [],
     statuses: [],
+    checklistStatuses: [],
+    qaScores: [],
     clientCodes: [],
+    needsAttentionOnly: false,
   };
 
 export function hasActiveFilters(
@@ -30,16 +46,124 @@ export function hasActiveFilters(
     filters.applicationIds.length > 0 ||
     filters.frameworks.length > 0 ||
     filters.statuses.length > 0 ||
-    filters.clientCodes.length > 0
+    filters.checklistStatuses.length > 0 ||
+    filters.qaScores.length > 0 ||
+    filters.clientCodes.length > 0 ||
+    filters.needsAttentionOnly
   );
+}
+
+// Dashboard tile -> filter state, one per ProgressSummary tile except
+// "Applications" (which navigates to the Application View instead of
+// filtering this page). Each replaces the current filters entirely --
+// a drill-down should show exactly that bucket, not combine with
+// whatever else was already selected.
+export type QuickFilterKey =
+  | "controls"
+  | "notStarted"
+  | "inProgress"
+  | "completed"
+  | "needsAttention"
+  | "argosReady";
+
+export function buildQuickFilterState(
+  key: QuickFilterKey
+): ApplicationFilterState {
+  switch (key) {
+    case "notStarted":
+      return {
+        ...EMPTY_APPLICATION_FILTERS,
+        statuses: [
+          "New",
+          "Checklist Review Pending",
+        ],
+      };
+    case "inProgress":
+      return {
+        ...EMPTY_APPLICATION_FILTERS,
+        statuses: [
+          "In Progress",
+          "Ready for Review",
+        ],
+      };
+    case "completed":
+      return {
+        ...EMPTY_APPLICATION_FILTERS,
+        statuses: ["Completed"],
+      };
+    case "needsAttention":
+      return {
+        ...EMPTY_APPLICATION_FILTERS,
+        needsAttentionOnly: true,
+      };
+    case "argosReady":
+      return {
+        ...EMPTY_APPLICATION_FILTERS,
+        qaScores: ["Argos Ready"],
+      };
+    case "controls":
+    default:
+      return EMPTY_APPLICATION_FILTERS;
+  }
 }
 
 // control.clientContext is stored as "CODE - Title" (see
 // formatClientReferenceEntry); the filter only cares about the code.
-function controlClientCode(
+export function controlClientCode(
   control: ComplianceControl
 ): string {
   return control.clientContext.split(" - ")[0].trim();
+}
+
+// The fixed table only has the 12 permanent codes -- the Learning
+// Engine can add more (client_reference_learnings, approved through
+// the learning review flow), and those show up on real controls'
+// clientContext without ever appearing in CLIENT_REFERENCE_TABLE.
+// Rather than a second API call just to list them, derive the extra
+// entries directly from whatever codes are actually in use right now,
+// so the filter never lags behind what's really on the data.
+export function getAvailableClientReferenceEntries(
+  applications: Application[]
+): ClientReferenceEntry[] {
+  const knownCodes = new Set(
+    CLIENT_REFERENCE_TABLE.map((entry) =>
+      entry.code.toLowerCase()
+    )
+  );
+
+  const extra = new Map<string, ClientReferenceEntry>();
+
+  for (const application of applications) {
+    for (const control of application.controls) {
+      const raw = control.clientContext.trim();
+
+      if (!raw) {
+        continue;
+      }
+
+      const [codePart, ...titleParts] =
+        raw.split(" - ");
+      const code = codePart.trim();
+
+      if (
+        !code ||
+        knownCodes.has(code.toLowerCase()) ||
+        extra.has(code.toLowerCase())
+      ) {
+        continue;
+      }
+
+      extra.set(code.toLowerCase(), {
+        code,
+        title: titleParts.join(" - ").trim(),
+      });
+    }
+  }
+
+  return [
+    ...CLIENT_REFERENCE_TABLE,
+    ...Array.from(extra.values()),
+  ];
 }
 
 function textMatches(
@@ -94,13 +218,35 @@ function controlMatchesFacets(
     filters.statuses.length === 0 ||
     filters.statuses.includes(control.controlStatus);
 
+  const checklistStatusOk =
+    filters.checklistStatuses.length === 0 ||
+    filters.checklistStatuses.includes(
+      control.checklistStatus
+    );
+
+  const qaScoreOk =
+    filters.qaScores.length === 0 ||
+    filters.qaScores.includes(control.qaScore);
+
   const clientCodeOk =
     filters.clientCodes.length === 0 ||
     filters.clientCodes.includes(
       controlClientCode(control)
     );
 
-  return frameworkOk && statusOk && clientCodeOk;
+  const needsAttentionOk =
+    !filters.needsAttentionOnly ||
+    control.controlStatus === "On Hold" ||
+    control.checklistStatus === "Needs Revision";
+
+  return (
+    frameworkOk &&
+    statusOk &&
+    checklistStatusOk &&
+    qaScoreOk &&
+    clientCodeOk &&
+    needsAttentionOk
+  );
 }
 
 export type FlatControlEntry = {
@@ -128,7 +274,10 @@ export function filterApplications(
   const hasFacetFilters =
     filters.frameworks.length > 0 ||
     filters.statuses.length > 0 ||
-    filters.clientCodes.length > 0;
+    filters.checklistStatuses.length > 0 ||
+    filters.qaScores.length > 0 ||
+    filters.clientCodes.length > 0 ||
+    filters.needsAttentionOnly;
 
   return applications.reduce<Application[]>(
     (result, application) => {

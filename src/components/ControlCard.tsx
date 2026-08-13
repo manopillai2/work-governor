@@ -123,6 +123,13 @@ type ControlCardProps = {
   onApproveChecklist: () => void;
   onRequestChecklistRevision: () => void;
   onCompleteControl: () => void;
+
+  // Controlled by the parent (rather than each card owning its own
+  // useState) so expanding one control can auto-collapse whichever
+  // other one is currently expanded -- an accordion needs a single
+  // source of truth above the individual cards.
+  expanded: boolean;
+  onToggleExpanded: () => void;
 };
 
 const CATEGORY_ORDER: TaskCategory[] = [
@@ -174,10 +181,10 @@ export default function ControlCard({
   onApproveChecklist,
   onRequestChecklistRevision,
   onCompleteControl,
-}: ControlCardProps) {
-  const [expanded, setExpanded] =
-    useState(false);
 
+  expanded,
+  onToggleExpanded,
+}: ControlCardProps) {
   const [menuOpen, setMenuOpen] =
     useState(false);
 
@@ -360,26 +367,24 @@ export default function ControlCard({
       <div className="flex w-full items-start justify-between gap-4 p-4 transition hover:bg-slate-50">
         <button
           type="button"
-          onClick={() =>
-            setExpanded(
-              (current) => !current
-            )
-          }
+          onClick={onToggleExpanded}
           aria-expanded={expanded}
           className="min-w-0 flex-1 text-left"
         >
-          {applicationTag ? (
-            <span className="mb-1 inline-flex w-fit items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
-              {applicationTag.appName}
-              {applicationTag.context
-                ? ` (${applicationTag.context})`
-                : ""}
-            </span>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {applicationTag ? (
+              <span className="inline-flex w-fit shrink-0 items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
+                {applicationTag.appName}
+                {applicationTag.context
+                  ? ` (${applicationTag.context})`
+                  : ""}
+              </span>
+            ) : null}
 
-          <h4 className="font-semibold text-slate-900">
-            {controlName}
-          </h4>
+            <h4 className="font-semibold text-slate-900">
+              {controlName}
+            </h4>
+          </div>
 
           {globalControlReference ||
           clientContext ? (
@@ -413,11 +418,7 @@ export default function ControlCard({
         <div className="relative flex shrink-0 items-center gap-2 self-center">
           <button
             type="button"
-            onClick={() =>
-              setExpanded(
-                (current) => !current
-              )
-            }
+            onClick={onToggleExpanded}
             aria-expanded={expanded}
             aria-label={
               expanded

@@ -44,6 +44,12 @@ import {
   type NoteSource,
 } from "@/services/commandEngine";
 import { formatClientReferenceEntry } from "@/services/clientReference";
+import {
+  buildQuickFilterState,
+  EMPTY_APPLICATION_FILTERS,
+  type ApplicationFilterState,
+  type QuickFilterKey,
+} from "@/services/applicationFilters";
 import { formatMeetingPrepEmailText } from "@/services/meetingPrepEmail";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
 import {
@@ -204,28 +210,53 @@ function createMessage(
 }
 
 // Bulk pastes from a GRC tool or spreadsheet (raw control exports
-// spanning multiple applications) routinely run 10-16k characters, and
-// the assistant needs that content still visible on a later turn to
-// answer "why was X ignored" honestly instead of denying X was ever
-// mentioned. High enough to keep realistic pastes intact; still a real
-// cap (evidence/data uploads use a short display message -- see
-// handleEvidenceUploaded -- so this only ever bounds manually typed or
-// pasted messages) so history sent on any future turn can't itself
-// blow the assistant's prompt token budget.
-const HISTORY_ITEM_CHAR_CAP = 20_000;
+// spanning multiple applications) routinely run 10-35k+ characters,
+// and are often referenced across SEVERAL follow-up turns (e.g. "add
+// Salesforce - CXT next", then "...Dynegy", then "...TXU", all
+// pulling from the same original paste). Chopping a single oversized
+// message part-way through (the previous approach) reliably lost
+// whatever came after the cutoff -- observed in practice losing the
+// last of four applications in one paste. Instead: keep whole
+// messages, newest first, dropping entire older messages once the
+// combined budget runs out, the same "whole units, never a partial
+// one" strategy already used for the evidence archive
+// (formatEvidenceArchive in route.ts). A message either stays fully
+// intact or is left out entirely and reported as omitted -- never
+// silently half-included.
+const HISTORY_TOTAL_CHAR_BUDGET = 120_000;
 
-function truncateForHistory(content: string): string {
-  if (content.length <= HISTORY_ITEM_CHAR_CAP) {
-    return content;
+function selectHistoryWithinBudget(
+  recentMessages: ChatMessage[]
+): {
+  included: ChatMessage[];
+  omittedCount: number;
+} {
+  let remainingBudget =
+    HISTORY_TOTAL_CHAR_BUDGET;
+
+  const included: ChatMessage[] = [];
+  let omittedCount = 0;
+
+  for (
+    let i = recentMessages.length - 1;
+    i >= 0;
+    i--
+  ) {
+    const message = recentMessages[i];
+
+    if (
+      message.content.length <=
+      remainingBudget
+    ) {
+      included.unshift(message);
+      remainingBudget -=
+        message.content.length;
+    } else {
+      omittedCount += 1;
+    }
   }
 
-  const omitted =
-    content.length - HISTORY_ITEM_CHAR_CAP;
-
-  return `${content.slice(
-    0,
-    HISTORY_ITEM_CHAR_CAP
-  )}\n\n[...truncated, ${omitted} more characters omitted...]`;
+  return { included, omittedCount };
 }
 
 function createTaskFromStoredValue(
@@ -489,6 +520,14 @@ type AppStateContextValue = {
   backups: BackupEntry[];
   progress: ProgressStats;
 
+  filters: ApplicationFilterState;
+  setFilters: (
+    filters: ApplicationFilterState
+  ) => void;
+  applyQuickFilter: (
+    key: QuickFilterKey
+  ) => void;
+
   handleSend: (
     userInput: string,
     noteSource?: NoteSource,
@@ -647,6 +686,16 @@ export default function AppStateProvider({
 
   const [messages, setMessages] =
     useState<ChatMessage[]>([]);
+
+  // Lives here (rather than in page.tsx's own state) so a dashboard
+  // tile clicked from /applications -- it also renders the same
+  // ProgressSummary via Header -- can set the filter that the flat
+  // control list on "/" will show after navigating there, without a
+  // URL-param scheme.
+  const [filters, setFilters] =
+    useState<ApplicationFilterState>(
+      EMPTY_APPLICATION_FILTERS
+    );
 
   const [isProcessing, setIsProcessing] =
     useState(false);
@@ -2133,8 +2182,12 @@ export default function AppStateProvider({
       trimmedInput
     );
 
-    const historyBeforeRequest =
-      messages.slice(-10);
+    const {
+      included: historyBeforeRequest,
+      omittedCount: historyOmittedCount,
+    } = selectHistoryWithinBudget(
+      messages.slice(-16)
+    );
 
     setMessages(
       (currentMessages) => [
@@ -2162,15 +2215,13 @@ export default function AppStateProvider({
           body: JSON.stringify({
             message: messageForAi,
             applications,
+            historyOmittedCount,
 
             history:
               historyBeforeRequest.map(
                 (message) => ({
                   role: message.role,
-                  content:
-                    truncateForHistory(
-                      message.content
-                    ),
+                  content: message.content,
                 })
               ),
           }),
@@ -2600,6 +2651,12 @@ export default function AppStateProvider({
     setLoadAttempt((current) => current + 1);
   }
 
+  function applyQuickFilter(
+    key: QuickFilterKey
+  ) {
+    setFilters(buildQuickFilterState(key));
+  }
+
   const contextValue: AppStateContextValue = {
     applications,
     messages,
@@ -2610,6 +2667,10 @@ export default function AppStateProvider({
     retryLoad,
     backups,
     progress,
+
+    filters,
+    setFilters,
+    applyQuickFilter,
 
     handleSend,
     updateControl,

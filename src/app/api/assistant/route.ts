@@ -494,6 +494,68 @@ function formatEvidenceArchive(
   };
 }
 
+// Deterministic safety net for the multi-application-in-one-paste
+// case: the MULTIPLE APPLICATIONS IN ONE MESSAGE prompt rule asks the
+// model to flag this itself, but that's best-effort and has been
+// observed to miss it in practice. This doesn't try to parse
+// arbitrary text for application names (too fragile/false-positive
+// prone) -- it specifically looks for the same base name the model
+// just used, followed by a different parenthetical suffix elsewhere
+// in the same message (the exact pattern real bulk GRC exports use,
+// e.g. "... - Salesforce (CXT)" and "... - Salesforce (Dynegy)" in
+// one paste). Only fires on that specific, recognizable shape.
+function detectSiblingApplicationCandidates(
+  message: string,
+  createdApplicationName: string
+): string[] {
+  const trimmedName = createdApplicationName.trim();
+
+  if (!trimmedName) {
+    return [];
+  }
+
+  const separatorMatch = trimmedName.match(
+    /^(.*?)\s*-\s*([^-]+)$/
+  );
+
+  const base = separatorMatch
+    ? separatorMatch[1].trim()
+    : trimmedName;
+
+  const createdSuffix = separatorMatch
+    ? separatorMatch[2].trim().toLowerCase()
+    : "";
+
+  if (!base) {
+    return [];
+  }
+
+  const escapedBase = base.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&"
+  );
+
+  const pattern = new RegExp(
+    `${escapedBase}\\s*\\(([A-Za-z0-9][A-Za-z0-9 ]{0,20})\\)`,
+    "gi"
+  );
+
+  const suffixes = new Set<string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(message)) !== null) {
+    const suffix = match[1].trim();
+
+    if (suffix.toLowerCase() !== createdSuffix) {
+      suffixes.add(suffix);
+    }
+  }
+
+  return Array.from(suffixes).map(
+    (suffix) => `${base} - ${suffix}`
+  );
+}
+
 function getCurrentDate(): string {
   return new Intl.DateTimeFormat(
     "en-US",
@@ -577,6 +639,12 @@ export async function POST(
     )
       ? (body.history as ChatHistoryItem[])
       : [];
+
+    const historyOmittedCount =
+      typeof body.historyOmittedCount ===
+      "number"
+        ? body.historyOmittedCount
+        : 0;
 
     if (!message) {
       return NextResponse.json(
@@ -4123,18 +4191,27 @@ ${message}
       );
     }
 
-    const truncatedHistoryCount = history.filter(
-      (item) =>
-        typeof item.content === "string" &&
-        item.content.includes(
-          "[...truncated, "
-        )
-    ).length;
-
-    if (truncatedHistoryCount > 0) {
+    if (historyOmittedCount > 0) {
       warnings.push(
-        `${truncatedHistoryCount} earlier message(s) in this conversation were too long to show me in full on this turn -- I'm only seeing the beginning of ${truncatedHistoryCount === 1 ? "it" : "them"}, so if this turn's answer seems to be missing something from later in ${truncatedHistoryCount === 1 ? "that message" : "those messages"}, paste the relevant part again.`
+        `${historyOmittedCount} earlier message(s) in this conversation were left out of what I could see this turn to stay within budget -- each one that IS included is always shown to me in full, never cut mid-message, so if this turn's answer seems to be missing something from further back, paste the relevant part again.`
       );
+    }
+
+    if (
+      command.action === "CREATE_APPLICATION" &&
+      command.payload.application
+    ) {
+      const siblingCandidates =
+        detectSiblingApplicationCandidates(
+          message,
+          command.payload.application
+        );
+
+      if (siblingCandidates.length > 0) {
+        warnings.push(
+          `Your message also appears to reference ${siblingCandidates.length === 1 ? "another application" : "other applications"} that ${siblingCandidates.length === 1 ? "wasn't" : "weren't"} created: ${siblingCandidates.join(", ")}. Only one application can be created per message -- ask me to create ${siblingCandidates.length === 1 ? "it" : "them"} next if you want ${siblingCandidates.length === 1 ? "it" : "them"} added.`
+        );
+      }
     }
 
     return NextResponse.json({

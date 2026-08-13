@@ -12,10 +12,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 
-import ProgressSummary from "@/components/ProgressSummary";
+import ProgressSummary, {
+  type ProgressTileKey,
+} from "@/components/ProgressSummary";
 import ThemeToggle from "@/components/ThemeToggle";
 import RainToggle from "@/components/RainToggle";
+import { useAppState } from "@/components/AppStateProvider";
 
 type HeaderProps = {
   progress?: {
@@ -51,6 +55,28 @@ function ChevronIcon({ collapsed }: { collapsed: boolean }) {
 
 export default function Header({ progress }: HeaderProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const { applyQuickFilter } = useAppState();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Centralized here (rather than duplicated in every page that
+  // renders <Header>) since Header is the one thing all three routes
+  // share. "Applications" is a navigation shortcut to the Application
+  // View; every other tile is a drill-down filter that always lands
+  // on the flat control list ("/"), regardless of which page the
+  // click happened on.
+  function handleTileClick(key: ProgressTileKey) {
+    if (key === "applications") {
+      router.push("/applications");
+      return;
+    }
+
+    applyQuickFilter(key);
+
+    if (pathname !== "/") {
+      router.push("/");
+    }
+  }
 
   if (collapsed) {
     return (
@@ -152,7 +178,12 @@ export default function Header({ progress }: HeaderProps) {
             <RainToggle />
           </div>
 
-          {progress ? <ProgressSummary {...progress} /> : null}
+          {progress ? (
+            <ProgressSummary
+              {...progress}
+              onTileClick={handleTileClick}
+            />
+          ) : null}
         </div>
       </div>
     </header>
