@@ -916,6 +916,56 @@ export function generateApplicationSummaryPdf(
   });
   y = getFinalY(doc) + 20;
 
+  // Access & Credentials Profile — every not-yet-completed "Access"
+  // checklist task across this application's controls, the same rollup
+  // shown in the in-app Access & Credentials Profile panel: the
+  // permission sets already asked for or already held, to line up
+  // against one shared credential for real-time Argos pulls.
+  const outstandingAccessRows = application.controls.flatMap(
+    (control) =>
+      control.nextTasks
+        .filter(
+          (task) =>
+            task.category === "Access" &&
+            !task.completed &&
+            !task.irrelevant
+        )
+        .map((task) => [control.name, task.text])
+  );
+
+  y = ensureRoom(doc, y, 60);
+  y = drawSectionBanner(
+    doc,
+    "Access & Credentials Profile",
+    marginX,
+    y,
+    pageWidth,
+    [124, 58, 237]
+  );
+
+  autoTable(doc, {
+    startY: y,
+    margin: { left: marginX, right: marginX },
+    theme: "grid",
+    head: [["Control", "Open Access Ask"]],
+    body:
+      outstandingAccessRows.length > 0
+        ? outstandingAccessRows
+        : [
+            [
+              "—",
+              "No outstanding access or credential asks.",
+            ],
+          ],
+    headStyles: { fillColor: [124, 58, 237], textColor: 255 },
+    styles: { fontSize: 8.5, cellPadding: 6, valign: "top" },
+    columnStyles: {
+      0: { cellWidth: 150 },
+      1: { cellWidth: "auto" },
+    },
+  });
+  y = getFinalY(doc) + 20;
+
   y = ensureRoom(doc, y, 60);
   y = drawSectionBanner(
     doc,
@@ -1100,6 +1150,14 @@ export function generateExecutiveProgressPdf(
         application.contextStatus !== "Complete"
     ).length;
 
+  const allControls = applications.flatMap(
+    (application) => application.controls
+  );
+
+  const argosReadyControls = allControls.filter(
+    (control) => control.qaScore === "Argos Ready"
+  ).length;
+
   const overallPercent =
     totalControls === 0
       ? 0
@@ -1138,7 +1196,7 @@ export function generateExecutiveProgressPdf(
   const cardH = 66;
   const cardGap = 10;
   const cardW =
-    (pageWidth - marginX * 2 - cardGap * 4) / 5;
+    (pageWidth - marginX * 2 - cardGap * 5) / 6;
 
   const cards: [string, string, [number, number, number]][] = [
     [
@@ -1155,6 +1213,13 @@ export function generateExecutiveProgressPdf(
       "% Complete",
       `${overallPercent}%`,
       colorForPercent(overallPercent),
+    ],
+    [
+      "Argos Ready",
+      String(argosReadyControls),
+      argosReadyControls > 0
+        ? [5, 150, 105]
+        : [100, 116, 139],
     ],
     [
       "On Hold",
@@ -1367,6 +1432,65 @@ export function generateExecutiveProgressPdf(
     },
   });
   y = getFinalY(doc) + 24;
+
+  // Outstanding Access & Credentials asks — every not-yet-completed
+  // "Access" checklist task across every control, the same rollup the
+  // in-app Access & Credentials Profile panel shows per application,
+  // surfaced here at the executive level as concrete open asks toward
+  // the shared credential each application needs for real-time Argos
+  // pulls.
+  const outstandingAccessRows = applications.flatMap(
+    (application) =>
+      application.controls.flatMap((control) =>
+        control.nextTasks
+          .filter(
+            (task) =>
+              task.category === "Access" &&
+              !task.completed &&
+              !task.irrelevant
+          )
+          .map((task) => [
+            application.name || application.id,
+            control.name,
+            task.text,
+          ])
+      )
+  );
+
+  if (outstandingAccessRows.length > 0) {
+    y = ensureRoom(doc, y, 60);
+    y = drawSectionBanner(
+      doc,
+      "Outstanding Access & Credentials Asks",
+      marginX,
+      y,
+      pageWidth,
+      [124, 58, 237]
+    );
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: marginX, right: marginX },
+      theme: "grid",
+      head: [["Application", "Control", "Open Access Ask"]],
+      body: outstandingAccessRows,
+      headStyles: {
+        fillColor: [124, 58, 237],
+        textColor: 255,
+      },
+      styles: {
+        fontSize: 8.5,
+        cellPadding: 6,
+        valign: "top",
+      },
+      columnStyles: {
+        0: { cellWidth: 75 },
+        1: { cellWidth: 110 },
+        2: { cellWidth: "auto" },
+      },
+    });
+    y = getFinalY(doc) + 24;
+  }
 
   // Attention items — controls that need executive visibility
   const attentionRows = applications.flatMap(

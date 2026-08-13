@@ -50,7 +50,7 @@ const STAGES: Stage[] = [
     short: "Validate",
     title: "Compare evidence with real application data",
     subtitle:
-      "Evidence and underlying data remain separate, attributable, and testable against each other.",
+      "Evidence and underlying data remain separate, attributable, and testable against each other -- every gap found becomes a concrete access or evidence-collection ask, not just an observation.",
   },
   {
     id: "adaptive",
@@ -58,7 +58,7 @@ const STAGES: Stage[] = [
     short: "Refine",
     title: "Adapt as new facts arrive",
     subtitle:
-      "Notes and application-team responses refine the checklist with a reasoned, auditable change history.",
+      "Notes and application-team responses refine the checklist -- every new item ties back to this control's own objective or risk, with a reasoned, auditable change history.",
   },
   {
     id: "learning",
@@ -74,7 +74,7 @@ const STAGES: Stage[] = [
     short: "Monitor",
     title: "Turn research into Argos monitoring",
     subtitle:
-      "Authoritative data becomes repeatable logic, exception detection, ownership, and remediation.",
+      "Once every gap closes with real data -- not just evidence -- it becomes repeatable logic, exception detection, ownership, and remediation.",
   },
 ];
 
@@ -402,6 +402,10 @@ function EvidenceStage() {
           <Pill tone="warn">! Gap</Pill>
           <Pill tone="bad">× Contradiction</Pill>
         </div>
+
+        <p className="cg-gap-note">
+          Every gap → an Access ask, added automatically
+        </p>
       </div>
 
       <div className="cg-source-column">
@@ -459,6 +463,7 @@ function AdaptiveStage() {
           <div className="cg-change-row cg-change-row--new">
             <span>Added</span>
             <strong>Obtain Entra ID sign-in & identity data</strong>
+            <p>Ties to: unauthorized-access risk this control exists to address</p>
           </div>
         </div>
 
@@ -467,7 +472,7 @@ function AdaptiveStage() {
           <div>
             <div className="cg-eyebrow">Auditable adaptation</div>
             <strong>Checklist refined</strong>
-            <p>Reason recorded · source attributed · progress refreshed</p>
+            <p>Tied to control intent · source attributed · progress refreshed</p>
           </div>
         </div>
       </div>
@@ -538,10 +543,18 @@ function ArgosStage() {
 
   return (
     <div className="cg-scene cg-scene--argos">
+      <div className="cg-argos-gate">
+        <Pill tone="good">✓ Argos Ready</Pill>
+        <span>Real data closes every gap -- not just evidence, not just a plan</span>
+      </div>
+
       <div className="cg-argos-pipeline">
         <div className="cg-argos-source">
           <Icon name="database" size={22} />
           <span>Authoritative Data</span>
+          <p className="cg-argos-source-caption">
+            Pulled via one shared Access &amp; Credentials Profile
+          </p>
           <div className="cg-record-stream">
             {records.map((record, index) => (
               <span
@@ -1404,6 +1417,14 @@ export default function ControlGovernorExplainer({
           margin-top: 6px;
         }
 
+        .cg-gap-note {
+          margin: 5px 0 0;
+          max-width: 150px;
+          font-size: 8px;
+          line-height: 1.4;
+          color: var(--cg-muted);
+        }
+
         .cg-data-path {
           position: absolute;
           top: 50%;
@@ -1531,6 +1552,14 @@ export default function ControlGovernorExplainer({
         .cg-change-row strong {
           font-size: 10px;
           font-weight: 650;
+        }
+
+        .cg-change-row p {
+          margin: 2px 0 0;
+          font-size: 8px;
+          line-height: 1.4;
+          font-style: italic;
+          color: var(--cg-muted);
         }
 
         .cg-change-row--old {
@@ -1700,6 +1729,19 @@ export default function ControlGovernorExplainer({
           gap: 18px;
         }
 
+        .cg-argos-gate {
+          align-self: center;
+          display: flex;
+          align-items: center;
+          gap: 9px;
+          animation: cg-rise 500ms ease both;
+        }
+
+        .cg-argos-gate span {
+          color: var(--cg-muted);
+          font-size: 9px;
+        }
+
         .cg-argos-pipeline {
           display: grid;
           grid-template-columns: 1fr 60px 1.15fr 60px .78fr;
@@ -1732,6 +1774,13 @@ export default function ControlGovernorExplainer({
         .cg-argos-source > span {
           font-size: 11px;
           font-weight: 700;
+        }
+
+        .cg-argos-source-caption {
+          margin: -4px 0 0;
+          font-size: 8px;
+          line-height: 1.4;
+          color: var(--cg-faint);
         }
 
         .cg-record-stream {

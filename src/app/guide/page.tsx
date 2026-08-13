@@ -315,7 +315,7 @@ const QA_LEVELS: { level: string; description: string; tone: Tone }[] = [
   {
     level: "Argos Ready",
     description:
-      "Evidence strategy and Argos objective are concrete enough to implement monitoring logic directly.",
+      "Real data -- not evidence, not a well-written plan -- backs every claim this control depends on, with zero remaining \"What's Missing From Data\" gaps. Evidence-complete or plan-complete alone doesn't round up to Argos Ready.",
     tone: "emerald",
   },
 ];
@@ -675,7 +675,7 @@ export default function GuidePage() {
             <FunctionCard
               tone="emerald"
               title="Adaptive note analysis"
-              description="Every note against a checklist item or control is analyzed immediately: it can add a new item or mark one irrelevant, and refreshes the progress summary and QA score -- always with a logged reason."
+              description="Every note against a checklist item or control is analyzed immediately: it can add a new item or mark one irrelevant, refreshing the progress summary and QA score. Any new item must tie back to this control's own objective or risk -- the change log records which part it serves, not just that something changed."
             />
             <FunctionCard
               tone="emerald"
@@ -735,7 +735,12 @@ export default function GuidePage() {
             <FunctionCard
               tone="emerald"
               title="Evidence vs. Data Gap Analysis"
-              description="Per control: a structured breakdown of what each evidence document and data file claims, where they agree or contradict, and specifically what real data is still missing to independently back up each piece of evidence -- the throughline toward retiring screenshot-style evidence. A high-level version rolls up at the application level. Refreshes automatically after an upload, or on demand."
+              description="Per control: a structured breakdown of what each evidence document and data file claims, where they agree or contradict, and specifically what real data is still missing to independently back up each piece of evidence -- the throughline toward retiring screenshot-style evidence. Every gap it finds automatically becomes a matching Access or Evidence Collection checklist task, so it turns into a concrete ask instead of just an observation. A high-level version rolls up at the application level. Refreshes automatically after an upload, or on demand."
+            />
+            <FunctionCard
+              tone="violet"
+              title="Access & Credentials Profile"
+              description="Rolls up every 'Access' checklist item across all of an application's controls into one place -- the permission sets already asked for or already held, so they can be lined up against one shared credential for pulling real-time data straight from the application."
             />
           </div>
         </section>
