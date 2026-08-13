@@ -14,6 +14,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import AppLogo from "@/components/AppLogo";
 import ProgressSummary, {
   type ProgressTileKey,
 } from "@/components/ProgressSummary";
@@ -83,7 +84,11 @@ export default function Header({ progress }: HeaderProps) {
       <header className="border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex w-full max-w-[1900px] items-center justify-between gap-2 px-5 py-2">
           <div className="flex items-center gap-2">
-            <Link href="/">
+            <Link
+              href="/"
+              className="flex items-center gap-1.5"
+            >
+              <AppLogo size={20} />
               <h1 className="bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-lg font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0]">
                 Control Governor
               </h1>
@@ -113,7 +118,11 @@ export default function Header({ progress }: HeaderProps) {
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <Link href="/">
+                <Link
+                  href="/"
+                  className="flex items-center gap-2"
+                >
+                  <AppLogo size={28} />
                   <h1 className="bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-2xl font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0]">
                     Control Governor
                   </h1>
