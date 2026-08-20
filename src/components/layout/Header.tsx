@@ -20,6 +20,9 @@ import ProgressSummary, {
 } from "@/components/ProgressSummary";
 import ThemeToggle from "@/components/ThemeToggle";
 import RainToggle from "@/components/RainToggle";
+import RoyalEffectToggle from "@/components/RoyalEffectToggle";
+import { RoyalIcon } from "@/components/RoyalIcon";
+import { useTheme } from "@/components/ThemeProvider";
 import { useAppState } from "@/components/AppStateProvider";
 
 type HeaderProps = {
@@ -54,11 +57,25 @@ function ChevronIcon({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function BrandMark({ size }: { size: number }) {
+  const { theme } = useTheme();
+  if (theme === "royal") {
+    return (
+      <span className="royal-crown-glow inline-flex">
+        <RoyalIcon name="crown" size={size} color="#D4AF37" glow />
+      </span>
+    );
+  }
+  return <AppLogo size={size} />;
+}
+
 export default function Header({ progress }: HeaderProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { applyQuickFilter } = useAppState();
   const router = useRouter();
   const pathname = usePathname();
+  const { theme } = useTheme();
+  const isRoyal = theme === "royal";
 
   // Centralized here (rather than duplicated in every page that
   // renders <Header>) since Header is the one thing all three routes
@@ -91,8 +108,10 @@ export default function Header({ progress }: HeaderProps) {
               title="What is Control Governor?"
               className="flex items-center gap-1.5"
             >
-              <AppLogo size={20} />
-              <h1 className="bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-lg font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0]">
+              <BrandMark size={20} />
+              <h1
+                className={`bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-lg font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0] royal:bg-none royal:text-[#F4CF47] ${isRoyal ? "royal-gold-text" : ""}`}
+              >
                 Control Governor
               </h1>
             </Link>
@@ -108,6 +127,7 @@ export default function Header({ progress }: HeaderProps) {
           <div className="flex shrink-0 items-center gap-2">
             <ThemeToggle />
             <RainToggle />
+            <RoyalEffectToggle />
           </div>
         </div>
       </header>
@@ -128,8 +148,10 @@ export default function Header({ progress }: HeaderProps) {
                   title="What is Control Governor?"
                   className="flex items-center gap-2"
                 >
-                  <AppLogo size={28} />
-                  <h1 className="bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-2xl font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0]">
+                  <BrandMark size={28} />
+                  <h1
+                    className={`bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-2xl font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0] royal:bg-none royal:text-[#F4CF47] ${isRoyal ? "royal-gold-text" : ""}`}
+                  >
                     Control Governor
                   </h1>
                 </Link>
@@ -173,6 +195,7 @@ export default function Header({ progress }: HeaderProps) {
           <div className="flex shrink-0 items-center gap-2">
             <ThemeToggle />
             <RainToggle />
+            <RoyalEffectToggle />
           </div>
 
           {progress ? (

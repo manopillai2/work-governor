@@ -54,3 +54,4 @@ docker/**/.env.docker
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+/pre-orphan-evidence-delete-backup-*/

@@ -16,6 +16,12 @@ import remarkGfm from "remark-gfm";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import HamburgerIcon from "@/components/HamburgerIcon";
 import PlusMinusIcon from "@/components/PlusMinusIcon";
+import {
+  RoyalIcon,
+  RoyalCardCorners,
+  type RoyalIconName,
+} from "@/components/RoyalIcon";
+import { useTheme } from "@/components/ThemeProvider";
 import { noteSourceLabel } from "@/services/notes";
 import { generateControlSummaryPdf } from "@/services/exportReport";
 import type {
@@ -364,14 +370,18 @@ export default function ControlCard({
     return "Not Started";
   }, [relevantTasks]);
 
-  return (
+  const { theme } = useTheme();
+  const isRoyal = theme === "royal";
+
+  const cardBody = (
     <div
       className={`overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md ${
         expanded
           ? "border-slate-200 border-l-4 border-l-blue-500"
           : "border-slate-200"
-      }`}
+      } ${isRoyal ? "royal-corner-frame royal-letter-texture royal-scroll-main royal-scroll-torn royal-scroll-paper" : ""}`}
     >
+      {isRoyal ? <RoyalCardCorners /> : null}
       <div className="flex w-full items-start justify-between gap-4 p-4 transition hover:bg-slate-50">
         <button
           type="button"
@@ -561,10 +571,13 @@ export default function ControlCard({
         </div>
       </div>
 
-      {expanded && (
-        <div className="space-y-2 border-t border-slate-200 p-3">
-          <CollapsibleSection
-            title="QA Assessment"
+      {(() => {
+        const body = (
+          <div
+            className={`space-y-2 border-t border-slate-200 p-3 ${isRoyal ? "royal-letter-texture" : ""}`}
+          >
+            <CollapsibleSection
+              title="QA Assessment"
             description="Why the QA badge above is what it is right now."
             tint="accent"
             open={openSectionKey === "qa"}
@@ -821,11 +834,39 @@ export default function ControlCard({
                   ))}
               </div>
             )}
-          </CollapsibleSection>
-        </div>
-      )}
+            </CollapsibleSection>
+          </div>
+        );
+
+        if (isRoyal) {
+          return (
+            <div
+              className="royal-unroll"
+              data-open={expanded}
+            >
+              <div className="royal-unroll-inner">
+                {body}
+              </div>
+            </div>
+          );
+        }
+
+        return expanded ? body : null;
+      })()}
     </div>
   );
+
+  if (isRoyal) {
+    return (
+      <div className="royal-scroll-wrapper">
+        <div className="royal-scroll-rod royal-scroll-rod--red" />
+        {cardBody}
+        <div className="royal-scroll-rod royal-scroll-rod--red" />
+      </div>
+    );
+  }
+
+  return cardBody;
 }
 
 function ControlContextBox({
@@ -913,11 +954,21 @@ function IconDownload() {
 // line rather than in its own labeled block in the hamburger menu, so
 // it costs no extra header space. Just the one control status --
 // checklist status and QA score are intentionally not shown here.
+const STATUS_ROYAL_ICON: Record<ControlStatus, RoyalIconName> = {
+  New: "pawn",
+  "Checklist Review Pending": "bishop",
+  "In Progress": "knight",
+  "Ready for Review": "rook",
+  Completed: "king",
+  "On Hold": "swords",
+};
+
 function ControlStatusBadge({
   status,
 }: {
   status: ControlStatus;
 }) {
+  const { theme } = useTheme();
   const classes: Record<
     ControlStatus,
     string
@@ -936,8 +987,15 @@ function ControlStatusBadge({
 
   return (
     <span
-      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}
     >
+      {theme === "royal" ? (
+        <RoyalIcon
+          name={STATUS_ROYAL_ICON[status]}
+          size={10}
+          color="currentColor"
+        />
+      ) : null}
       Status: {status}
     </span>
   );

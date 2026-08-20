@@ -1,6 +1,7 @@
 "use client";
 
-import { useTheme } from "./ThemeProvider";
+import { useTheme, type Theme } from "./ThemeProvider";
+import { RoyalIcon } from "./RoyalIcon";
 
 function SunIcon() {
   return (
@@ -35,17 +36,35 @@ function MoonIcon() {
   );
 }
 
+// light -> dark -> royal -> light
+const NEXT_THEME: Record<Theme, Theme> = {
+  light: "dark",
+  dark: "royal",
+  royal: "light",
+};
+
+const THEME_LABEL: Record<Theme, string> = {
+  light: "light theme",
+  dark: "dark theme",
+  royal: "royal theme",
+};
+
 export default function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const isDark = theme === "dark";
 
   return (
     <button
-      onClick={() => setTheme(isDark ? "light" : "dark")}
-      className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-[#0aff41]/40 dark:bg-black dark:text-[#8affc0] dark:shadow-[0_0_10px_rgba(10,255,65,0.15)] dark:hover:bg-[#0aff41]/10"
-      title={isDark ? "Switch to light theme" : "Switch to dark theme"}
+      onClick={() => setTheme(NEXT_THEME[theme])}
+      className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-[#0aff41]/40 dark:bg-black dark:text-[#8affc0] dark:shadow-[0_0_10px_rgba(10,255,65,0.15)] dark:hover:bg-[#0aff41]/10 royal:border-[#D4AF37]/50 royal:bg-[#1c0f2e] royal:text-[#F4CF47] royal:shadow-[0_0_10px_rgba(212,175,55,0.25)] royal:hover:bg-[#2a1a44]"
+      title={`Switch to ${THEME_LABEL[NEXT_THEME[theme]]}`}
     >
-      {isDark ? <MoonIcon /> : <SunIcon />}
+      {theme === "dark" ? (
+        <MoonIcon />
+      ) : theme === "royal" ? (
+        <RoyalIcon name="crown" size={13} color="currentColor" />
+      ) : (
+        <SunIcon />
+      )}
       Change Theme
     </button>
   );

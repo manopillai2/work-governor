@@ -8,7 +8,9 @@ import ControlCard from "@/components/ControlCard";
 import FilterBar from "@/components/FilterBar";
 import Header from "@/components/layout/Header";
 import NavSwitchButton from "@/components/NavSwitchButton";
+import RoyalSkyline from "@/components/RoyalSkyline";
 import { useAppState } from "@/components/AppStateProvider";
+import { useTheme } from "@/components/ThemeProvider";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
 
 import {
@@ -43,6 +45,9 @@ export default function Home() {
 
     openEvidenceModal,
   } = useAppState();
+
+  const { theme } = useTheme();
+  const isRoyal = theme === "royal";
 
   const [isChatCollapsed, setIsChatCollapsed] =
     useState(false);
@@ -136,7 +141,7 @@ export default function Home() {
                     )
                   }
                   title="Download a colorful executive PDF covering every application and control, with completion percentages"
-                  className="inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500"
+                  className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 ${isRoyal ? "royal-btn-shine" : ""}`}
                 >
                   Executive Summary
                 </button>
@@ -414,6 +419,8 @@ export default function Home() {
           </aside>
         </div>
       </div>
+
+      <RoyalSkyline />
     </main>
   );
 }

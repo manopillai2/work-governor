@@ -9,6 +9,7 @@ import ChevronMiniIcon from "@/components/ChevronMiniIcon";
 import ContextStatusBadge from "@/components/ContextStatusBadge";
 import Header from "@/components/layout/Header";
 import NavSwitchButton from "@/components/NavSwitchButton";
+import RoyalSkyline from "@/components/RoyalSkyline";
 import { useAppState } from "@/components/AppStateProvider";
 import {
   findApplication,
@@ -329,6 +330,8 @@ export default function ApplicationsPage() {
           </aside>
         </div>
       </div>
+
+      <RoyalSkyline />
     </main>
   );
 }

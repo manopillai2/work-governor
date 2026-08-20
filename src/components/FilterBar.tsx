@@ -14,6 +14,8 @@ import {
   EMPTY_APPLICATION_FILTERS,
 } from "@/services/applicationFilters";
 import HamburgerIcon from "@/components/HamburgerIcon";
+import { RoyalCardCorners } from "@/components/RoyalIcon";
+import { useTheme } from "@/components/ThemeProvider";
 
 const FRAMEWORK_OPTIONS: Framework[] = [
   "SOX",
@@ -160,8 +162,14 @@ export default function FilterBar({
       applications
     );
 
+  const { theme } = useTheme();
+  const isRoyal = theme === "royal";
+
   return (
-    <div className="space-y-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 shadow-sm">
+    <div
+      className={`space-y-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 shadow-sm ${isRoyal ? "royal-corner-frame royal-letter-texture" : ""}`}
+    >
+      {isRoyal ? <RoyalCardCorners /> : null}
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="text"

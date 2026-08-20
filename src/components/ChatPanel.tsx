@@ -14,6 +14,8 @@ import ReactMarkdown, {
 } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { RoyalCardCorners } from "@/components/RoyalIcon";
+import { useTheme } from "@/components/ThemeProvider";
 import type {
   MeetingPrepEmail,
   MeetingPrepQuestion,
@@ -651,8 +653,14 @@ export default function ChatPanel({
     await onSend(historyEntry);
   }
 
+  const { theme } = useTheme();
+  const isRoyal = theme === "royal";
+
   return (
-    <div className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-xl shadow-black/10 xl:h-full">
+    <div
+      className={`flex h-[520px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-xl shadow-black/10 xl:h-full ${isRoyal ? "royal-corner-frame royal-letter-texture" : ""}`}
+    >
+      {isRoyal ? <RoyalCardCorners /> : null}
       <div className="shrink-0 border-b border-slate-800 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -924,7 +932,7 @@ export default function ChatPanel({
               disabled={
                 !input.trim() || isProcessing
               }
-              className="rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
+              className={`rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100 ${isRoyal ? "royal-btn-shine" : ""}`}
             >
               {isProcessing
                 ? "Working..."

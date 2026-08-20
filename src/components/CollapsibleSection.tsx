@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 
 import PlusMinusIcon from "./PlusMinusIcon";
+import { useTheme } from "./ThemeProvider";
 
 type Theme = "light" | "dark";
 type Tint = "default" | "accent" | "warning";
@@ -105,9 +106,12 @@ export default function CollapsibleSection({
     }
   }
 
+  const { theme: appTheme } = useTheme();
+  const isRoyal = appTheme === "royal";
+
   return (
     <section
-      className={`overflow-hidden rounded-xl border shadow-sm ${CONTAINER_CLASSES[theme][tint]}`}
+      className={`relative overflow-hidden rounded-xl border shadow-sm ${CONTAINER_CLASSES[theme][tint]} ${isRoyal ? "royal-letter-texture royal-nested-panel" : ""}`}
     >
       <div className="flex w-full items-center gap-3 px-4 py-2">
         <button
@@ -153,7 +157,20 @@ export default function CollapsibleSection({
         </div>
       </div>
 
-      {open ? (
+      {isRoyal ? (
+        <div
+          className="royal-unroll"
+          data-open={open}
+        >
+          <div className="royal-unroll-inner">
+            <div
+              className={`royal-letter-texture border-t p-4 ${DIVIDER_CLASSES[theme]}`}
+            >
+              {children}
+            </div>
+          </div>
+        </div>
+      ) : open ? (
         <div
           className={`border-t p-4 ${DIVIDER_CLASSES[theme]}`}
         >
