@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+
+import { useTheme } from "@/components/ThemeProvider";
 import { usePathname } from "next/navigation";
+
 
 function GridIcon() {
   return (
@@ -34,11 +37,15 @@ function BackArrowIcon() {
 export default function NavSwitchButton() {
   const pathname = usePathname();
   const onApplicationsRoute = pathname?.startsWith("/applications");
+  const { uiMode } = useTheme();
+
+  // The New UI's sidebar already links both views.
+  if (uiMode === "hub") return null;
 
   return (
     <Link
       href={onApplicationsRoute ? "/" : "/applications"}
-      className="inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110"
+      className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110`}
     >
       {onApplicationsRoute ? <BackArrowIcon /> : <GridIcon />}
       {onApplicationsRoute ? "Control View" : "Application View"}

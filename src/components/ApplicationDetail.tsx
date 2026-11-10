@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import ContextStatusBadge from "@/components/ContextStatusBadge";
 import { noteSourceLabel } from "@/services/notes";
+import { NoteBullets } from "@/components/NoteBullets";
 import { splitApplicationName } from "@/services/applicationName";
 import { generateApplicationSummaryPdf } from "@/services/exportReport";
 import type {
@@ -639,15 +640,15 @@ export default function ApplicationDetail({
                       {note.id}
                     </p>
 
-                    <p
+                    <div
                       className={
                         note.documentDeleted
                           ? "text-sm leading-6 text-slate-500 line-through decoration-slate-600"
                           : "text-sm leading-6 text-slate-300"
                       }
                     >
-                      {note.text}
-                    </p>
+                      <NoteBullets text={note.text} />
+                    </div>
 
                     {note.documentDeleted ? (
                       <p className="mt-1 text-xs font-medium text-rose-400">
@@ -866,13 +867,11 @@ function AccessCredentialsPanel({
                           key={note.id}
                           className="text-xs leading-5 text-slate-400"
                         >
-                          {note.text}
+                          <NoteBullets text={note.text} />
                           {noteSourceLabel(note) ? (
-                            <span className="ml-1 text-slate-500">
-                              (
+                            <p className="mt-0.5 text-slate-500">
                               {noteSourceLabel(note)}
-                              )
-                            </span>
+                            </p>
                           ) : null}
                         </li>
                       ))}

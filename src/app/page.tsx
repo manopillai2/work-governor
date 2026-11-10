@@ -1,19 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import ChatPanel from "@/components/ChatPanel";
 import ChevronMiniIcon from "@/components/ChevronMiniIcon";
 import ControlCard from "@/components/ControlCard";
 import FilterBar from "@/components/FilterBar";
-import Header from "@/components/layout/Header";
-import NavSwitchButton from "@/components/NavSwitchButton";
-import RoyalSkyline from "@/components/RoyalSkyline";
-import { useAppState } from "@/components/AppStateProvider";
+import AppFrame from "@/components/layout/AppFrame";
+import HubDashboard from "@/components/hub/HubDashboard";
 import { useTheme } from "@/components/ThemeProvider";
+import { usePathname, useSearchParams } from "next/navigation";
+import NavSwitchButton from "@/components/NavSwitchButton";
+import { useAppState } from "@/components/AppStateProvider";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
 
 import {
+  buildControlDrillDownFilters,
   filterApplications,
   toFlatControlEntries,
 } from "@/services/applicationFilters";
@@ -46,18 +48,52 @@ export default function Home() {
     openEvidenceModal,
   } = useAppState();
 
-  const { theme } = useTheme();
-  const isRoyal = theme === "royal";
+
+  // New UI: "/" is the application dashboard and the flat control
+  // list lives at /controls (same component); the chat moves into the
+  // shell's drawer. Classic renders this page the same on both paths.
+  const { uiMode } = useTheme();
+  const isHub = uiMode === "hub";
+  const pathname = usePathname();
+  const showDashboard = isHub && pathname === "/";
 
   const [isChatCollapsed, setIsChatCollapsed] =
     useState(false);
 
   // A single expanded control id, not a per-card useState -- expanding
   // one control auto-collapses whichever other one was open.
-  const [
-    expandedControlId,
-    setExpandedControlId,
-  ] = useState<string | null>(null);
+  // Deep link from the New UI's application tiles: ?control=<id> opens
+  // that control expanded. Read via useSearchParams (not
+  // window.location) so it is also correct after an in-app router.push,
+  // where the first render happens before the URL changes. The user's
+  // own expand/collapse choice wins until the link changes again.
+  const linkedControlId = useSearchParams().get("control");
+  const [expandedChoice, setExpandedChoice] = useState<{
+    forLink: string | null;
+    id: string | null;
+  } | null>(null);
+  const expandedControlId =
+    expandedChoice && expandedChoice.forLink === linkedControlId
+      ? expandedChoice.id
+      : linkedControlId;
+
+  // ...and applies the existing Apps + Control filters for it once data
+  // has loaded, so a reload or shared /controls?control=<id> link
+  // narrows the same way a tile click does (which sets them before
+  // navigating). Applied once per link; the user can change or clear
+  // the filters in FilterBar afterwards.
+  const appliedLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isLoaded || !linkedControlId || appliedLinkRef.current === linkedControlId) return;
+    appliedLinkRef.current = linkedControlId;
+    for (const application of applications) {
+      const control = application.controls.find((c) => c.id === linkedControlId);
+      if (control) {
+        setFilters(buildControlDrillDownFilters(application, control));
+        return;
+      }
+    }
+  }, [isLoaded, linkedControlId, applications, setFilters]);
 
   const visibleApplications = useMemo(
     () =>
@@ -78,10 +114,7 @@ export default function Home() {
 
   if (!isLoaded) {
     return (
-      <main className="app-canvas-bg flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
-        <div className="shrink-0">
-          <Header />
-        </div>
+      <AppFrame title={showDashboard ? "Dashboard" : "Controls"}>
 
         <div className="flex flex-1 items-center justify-center">
           {loadError ? (
@@ -108,26 +141,33 @@ export default function Home() {
             </p>
           )}
         </div>
-      </main>
+      </AppFrame>
+    );
+  }
+
+  if (showDashboard) {
+    return (
+      <AppFrame title="Dashboard" progress={progress}>
+        <HubDashboard />
+      </AppFrame>
     );
   }
 
   return (
-    <main className="app-canvas-bg flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
-      <div className="shrink-0">
-        <Header progress={progress} />
-      </div>
+    <AppFrame title="Controls" progress={progress}>
 
-      <div className="min-h-0 flex-1 overflow-hidden px-3 py-3 xl:px-4 xl:py-4">
+      <div className={`min-h-0 flex-1 overflow-hidden ${isHub ? "px-4 py-3" : "px-3 py-3 xl:px-4 xl:py-4"}`}>
         <div
           className={`grid h-full min-h-0 w-full gap-3 xl:gap-4 ${
-            isChatCollapsed
+            isHub
+              ? ""
+              : isChatCollapsed
               ? "xl:grid-cols-[1fr_44px]"
               : "xl:grid-cols-[minmax(650px,78%)_minmax(300px,22%)]"
           }`}
         >
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-            <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
+            <div className={`mb-2 flex shrink-0 items-center justify-between gap-4 ${isHub ? "hidden" : ""}`}>
               <h2 className="text-2xl font-bold tracking-tight text-white">
                 Controls
               </h2>
@@ -141,7 +181,7 @@ export default function Home() {
                     )
                   }
                   title="Download a colorful executive PDF covering every application and control, with completion percentages"
-                  className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 ${isRoyal ? "royal-btn-shine" : ""}`}
+                  className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500`}
                 >
                   Executive Summary
                 </button>
@@ -215,13 +255,14 @@ export default function Home() {
                               control.id
                             }
                             onToggleExpanded={() =>
-                              setExpandedControlId(
-                                (current) =>
-                                  current ===
+                              setExpandedChoice({
+                                forLink: linkedControlId,
+                                id:
+                                  expandedControlId ===
                                   control.id
                                     ? null
-                                    : control.id
-                              )
+                                    : control.id,
+                              })
                             }
                             applicationTag={splitApplicationName(
                               application.name
@@ -367,6 +408,7 @@ export default function Home() {
             </div>
           </section>
 
+          {isHub ? null : (
           <aside className="h-full min-h-0 min-w-0 overflow-hidden">
             {isChatCollapsed ? (
               <button
@@ -417,10 +459,9 @@ export default function Home() {
               </div>
             )}
           </aside>
+          )}
         </div>
       </div>
-
-      <RoyalSkyline />
-    </main>
+    </AppFrame>
   );
 }

@@ -115,6 +115,23 @@ export function controlClientCode(
   return control.clientContext.split(" - ")[0].trim();
 }
 
+// Control clicked on a New UI dashboard tile -> the existing "Apps" and
+// "Control" (client code) facets, so the control list opens narrowed
+// to that control using filters the user can see and toggle in
+// FilterBar. A control without a client code can only be narrowed to
+// its application.
+export function buildControlDrillDownFilters(
+  application: Application,
+  control: ComplianceControl
+): ApplicationFilterState {
+  const code = controlClientCode(control);
+  return {
+    ...EMPTY_APPLICATION_FILTERS,
+    applicationIds: [application.id],
+    clientCodes: code ? [code] : [],
+  };
+}
+
 // The fixed table only has the 12 permanent codes -- the Learning
 // Engine can add more (client_reference_learnings, approved through
 // the learning review flow), and those show up on real controls'

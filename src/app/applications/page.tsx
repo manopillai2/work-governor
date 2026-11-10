@@ -2,15 +2,18 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import ApplicationDetail from "@/components/ApplicationDetail";
 import ChatPanel from "@/components/ChatPanel";
 import ChevronMiniIcon from "@/components/ChevronMiniIcon";
 import ContextStatusBadge from "@/components/ContextStatusBadge";
-import Header from "@/components/layout/Header";
+import AppFrame from "@/components/layout/AppFrame";
+import { buildControlDrillDownFilters } from "@/services/applicationFilters";
+import { HubAppCard, I, Icon, T } from "@/components/hub/hubUi";
 import NavSwitchButton from "@/components/NavSwitchButton";
-import RoyalSkyline from "@/components/RoyalSkyline";
 import { useAppState } from "@/components/AppStateProvider";
+import { useTheme } from "@/components/ThemeProvider";
 import {
   findApplication,
   type Application,
@@ -28,6 +31,7 @@ function ApplicationTile({
 }) {
   const { appName, context } =
     splitApplicationName(application.name);
+
 
   return (
     <button
@@ -85,10 +89,15 @@ export default function ApplicationsPage() {
 
     openEvidenceModal,
     openAttachmentManager,
+    setFilters,
   } = useAppState();
 
   const [isChatCollapsed, setIsChatCollapsed] =
     useState(false);
+
+  const { uiMode } = useTheme();
+  const isHub = uiMode === "hub";
+  const router = useRouter();
 
   // Master-detail on one page rather than a separate /applications/[id]
   // route -- selecting a tile on the left just swaps what's shown on
@@ -97,7 +106,13 @@ export default function ApplicationsPage() {
   const [
     selectedApplicationId,
     setSelectedApplicationId,
-  ] = useState<string | null>(null);
+  ] = useState<string | null>(() =>
+    // Deep link from the New UI dashboard: /applications?app=<id>.
+    // Safe for hydration -- the detail view only renders after load.
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("app")
+  );
 
   const selectedApplication = selectedApplicationId
     ? findApplication(
@@ -115,25 +130,27 @@ export default function ApplicationsPage() {
   }
 
   return (
-    <main className="app-canvas-bg flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
-      <div className="shrink-0">
-        <Header
-          progress={
-            isLoaded ? progress : undefined
-          }
-        />
-      </div>
+    <AppFrame
+      title={
+        selectedApplication
+          ? `Applications / ${selectedApplication.name}`
+          : "Applications"
+      }
+      progress={isLoaded ? progress : undefined}
+    >
 
-      <div className="min-h-0 flex-1 overflow-hidden px-3 py-3 xl:px-4 xl:py-4">
+      <div className={`min-h-0 flex-1 overflow-hidden ${isHub ? "px-4 py-3" : "px-3 py-3 xl:px-4 xl:py-4"}`}>
         <div
           className={`grid h-full min-h-0 w-full gap-3 xl:gap-4 ${
-            isChatCollapsed
+            isHub
+              ? ""
+              : isChatCollapsed
               ? "xl:grid-cols-[1fr_44px]"
               : "xl:grid-cols-[minmax(650px,78%)_minmax(300px,22%)]"
           }`}
         >
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-            <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
+            <div className={`mb-2 flex shrink-0 items-center justify-between gap-4 ${isHub ? "hidden" : ""}`}>
               <div>
                 <h2 className="text-2xl font-bold tracking-tight text-white">
                   Applications
@@ -178,6 +195,104 @@ export default function ApplicationsPage() {
                       control list to create an
                       application and its controls.
                     </p>
+                  </div>
+                </div>
+              ) : isHub && selectedApplication ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedApplicationId(null)
+                    }
+                    className="mb-3 flex w-fit items-center gap-1.5 text-[13.5px] font-medium"
+                    style={{ color: T.teal }}
+                  >
+                    <Icon d={I.back} size={14} /> All
+                    applications
+                  </button>
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 xl:pr-2">
+                    <ApplicationDetail
+                      application={
+                        selectedApplication
+                      }
+                      isProcessing={isProcessing}
+                      onSaveContext={(context) =>
+                        saveApplicationContext(
+                          selectedApplication.id,
+                          context
+                        )
+                      }
+                      onRegenerateAllChecklists={() =>
+                        void regenerateAllChecklistsHandler(
+                          selectedApplication
+                        )
+                      }
+                      onAddNote={(note) =>
+                        addApplicationNoteHandler(
+                          selectedApplication.id,
+                          note
+                        )
+                      }
+                      onRefreshEvidenceDataGapAnalysis={() =>
+                        handleSend(
+                          `Analyze the evidence vs real data gap for ${selectedApplication.id}, across all controls.`
+                        )
+                      }
+                      onPrepEmail={() =>
+                        handleSend(
+                          `Give me an email-ready version for ${selectedApplication.id}.`
+                        )
+                      }
+                      onShowQuestions={() =>
+                        handleSend(
+                          `Give me just the open questions from an email-ready version for ${selectedApplication.id}.`
+                        )
+                      }
+                      onOpenAttachments={() =>
+                        openAttachmentManager(
+                          selectedApplication.id
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              ) : isHub ? (
+                <div className="h-full min-h-0 overflow-y-auto overscroll-contain pb-4 pr-1">
+                  <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-2 min-[1150px]:grid-cols-3 min-[1500px]:grid-cols-4">
+                    {applications.map(
+                      (application) => (
+                        <HubAppCard
+                          key={application.id}
+                          app={application}
+                          mono="font-mono"
+                          onOpen={() =>
+                            handleSelect(
+                              application.id
+                            )
+                          }
+                          onOpenControl={(
+                            controlId
+                          ) => {
+                            // Open the control list on exactly this control.
+                            const control =
+                              application.controls.find(
+                                (c) => c.id === controlId
+                              );
+                            if (control) {
+                              setFilters(
+                                buildControlDrillDownFilters(
+                                  application,
+                                  control
+                                )
+                              );
+                            }
+                            router.push(
+                              `/controls?control=${encodeURIComponent(controlId)}`
+                            );
+                          }}
+                        />
+                      )
+                    )}
                   </div>
                 </div>
               ) : selectedApplication ? (
@@ -280,6 +395,7 @@ export default function ApplicationsPage() {
             </div>
           </section>
 
+          {isHub ? null : (
           <aside className="h-full min-h-0 min-w-0 overflow-hidden">
             {isChatCollapsed ? (
               <button
@@ -328,10 +444,9 @@ export default function ApplicationsPage() {
               </div>
             )}
           </aside>
+          )}
         </div>
       </div>
-
-      <RoyalSkyline />
-    </main>
+    </AppFrame>
   );
 }

@@ -14,8 +14,6 @@ import ReactMarkdown, {
 } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { RoyalCardCorners } from "@/components/RoyalIcon";
-import { useTheme } from "@/components/ThemeProvider";
 import type {
   MeetingPrepEmail,
   MeetingPrepQuestion,
@@ -583,6 +581,9 @@ export default function ChatPanel({
     setShowAttachChooser,
   ] = useState(false);
 
+  const [showKeyboardHelp, setShowKeyboardHelp] =
+    useState(false);
+
   const messagesEndRef =
     useRef<HTMLDivElement | null>(null);
 
@@ -653,14 +654,11 @@ export default function ChatPanel({
     await onSend(historyEntry);
   }
 
-  const { theme } = useTheme();
-  const isRoyal = theme === "royal";
 
   return (
     <div
-      className={`flex h-[520px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-xl shadow-black/10 xl:h-full ${isRoyal ? "royal-corner-frame royal-letter-texture" : ""}`}
+      className={`flex h-[520px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-xl shadow-black/10 xl:h-full`}
     >
-      {isRoyal ? <RoyalCardCorners /> : null}
       <div className="shrink-0 border-b border-slate-800 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -841,11 +839,86 @@ export default function ChatPanel({
         />
 
         <div className="mt-2 flex items-center justify-between gap-3">
-          <p className="text-[11px] text-slate-500">
-            Enter to send · Shift + Enter for a new line · Tab to
-            list message history, Tab + ↑/↓ to browse it, or type a
-            number + Enter to re-run it
-          </p>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() =>
+                setShowKeyboardHelp(
+                  (current) => !current
+                )
+              }
+              aria-expanded={showKeyboardHelp}
+              aria-label="Keyboard shortcuts help"
+              title="Keyboard shortcuts"
+              className="flex h-7 items-center gap-1.5 rounded-full border border-slate-700 px-2.5 text-[11px] font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="9"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+                <path
+                  d="M9.6 9.3a2.5 2.5 0 014.8 1c0 1.7-2.4 2.2-2.4 3.7M12 17h.01"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+              Help
+            </button>
+
+            {showKeyboardHelp ? (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() =>
+                    setShowKeyboardHelp(false)
+                  }
+                />
+
+                <div
+                  role="dialog"
+                  aria-label="Keyboard shortcuts"
+                  className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-lg"
+                >
+                  <p className="mb-2 text-xs font-semibold text-slate-200">
+                    Keyboard shortcuts
+                  </p>
+                  <ul className="space-y-1.5 text-[11px] leading-4 text-slate-400">
+                    <li>
+                      <span className="font-semibold text-slate-300">Enter</span>{" "}
+                      — send
+                    </li>
+                    <li>
+                      <span className="font-semibold text-slate-300">Shift + Enter</span>{" "}
+                      — new line
+                    </li>
+                    <li>
+                      <span className="font-semibold text-slate-300">Tab</span>{" "}
+                      — list message history
+                    </li>
+                    <li>
+                      <span className="font-semibold text-slate-300">Tab + ↑/↓</span>{" "}
+                      — browse history
+                    </li>
+                    <li>
+                      <span className="font-semibold text-slate-300">Number + Enter</span>{" "}
+                      — re-run that message
+                    </li>
+                  </ul>
+                </div>
+              </>
+            ) : null}
+          </div>
 
           <div className="relative flex shrink-0 items-center gap-2">
             {onAttachEvidence ? (
@@ -932,7 +1005,7 @@ export default function ChatPanel({
               disabled={
                 !input.trim() || isProcessing
               }
-              className={`rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100 ${isRoyal ? "royal-btn-shine" : ""}`}
+              className={`rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100`}
             >
               {isProcessing
                 ? "Working..."

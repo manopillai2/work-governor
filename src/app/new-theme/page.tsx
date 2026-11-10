@@ -2,6 +2,13 @@ import Link from "next/link";
 
 const THEMES = [
   {
+    href: "/new-theme/compliance-hub",
+    name: "0. Compliance Hub (from Untitled.png)",
+    description:
+      "Cool gray canvas, teal accent, KPI strip, segmented status bars, dense control rows with mono codes, outlined pill actions.",
+    swatch: ["#f4f6f8", "#0f7d8c", "#d42a3c", "#0f8a5f"],
+  },
+  {
     href: "/new-theme/saas-minimal",
     name: "1. Modern SaaS Minimal",
     description:

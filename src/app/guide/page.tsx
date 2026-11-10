@@ -3,15 +3,15 @@
 // Purpose        : Standalone product guide for Work
 //                  Governor -- architecture, objectives,
 //                  and every function/action it exposes.
-//                  Reached by clicking the "Control Governor"
-//                  title in the app header.
+//                  Reached from "Control Governor" in the
+//                  Classic header, or "Take the tour" / Guide
+//                  in the New UI. Covers both layouts.
 // Author         : Manoj
 // ======================================================
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import ThemeToggle from "@/components/ThemeToggle";
-import RainToggle from "@/components/RainToggle";
+import UiModePicker from "@/components/UiModePicker";
 import ControlGovernorExplainer from "@/components/ControlGovernorExplainer";
 
 export const metadata: Metadata = {
@@ -324,7 +324,7 @@ export default function GuidePage() {
   return (
     <main className="h-screen snap-y snap-proximity overflow-y-auto scroll-smooth bg-slate-50">
       {/* Hero */}
-      <div className="snap-start bg-gradient-to-br from-indigo-700 via-blue-700 to-cyan-600 text-white">
+      <div className="guide-hero snap-start bg-gradient-to-br from-[#16324a] via-[#0f5f6e] to-[#0f7d8c] text-white">
         <div className="mx-auto max-w-7xl px-6 py-14">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link
@@ -343,9 +343,9 @@ export default function GuidePage() {
               Back to the app
             </Link>
 
-            <div className="flex shrink-0 items-center gap-2">
-              <ThemeToggle />
-              <RainToggle />
+            <div className="flex shrink-0 items-center gap-2 text-xs font-medium text-blue-100">
+              Layout
+              <UiModePicker onDark />
             </div>
           </div>
 
@@ -372,14 +372,18 @@ export default function GuidePage() {
           </p>
 
           <p className="mt-3 max-w-2xl text-base leading-7 text-blue-50">
-            Day-to-day work happens on a flat Controls list -- every
-            control tagged with its application, client context ID, and
-            control type, so filtering and cross-application summaries
-            stay effortless even as more applications are added.
-            Application-level context, evidence-vs-data summaries, and
-            bulk actions (across every control on an application) live on
-            a separate Applications page, one click away via the toggle
-            button next to each view&apos;s heading.
+            Two layouts share the same data, assistant, and look:{" "}
+            <strong className="font-semibold text-white">Classic</strong>{" "}
+            -- a header with progress tiles above a flat Controls list
+            with the assistant docked alongside -- and the{" "}
+            <strong className="font-semibold text-white">New UI</strong>{" "}
+            -- a sidebar workspace that opens on a dashboard of
+            application cards, with the assistant in a slide-over
+            drawer. Switch any time with the picker above; see{" "}
+            <a href="#layouts" className="underline decoration-white/50 underline-offset-2 hover:decoration-white">
+              Start here
+            </a>{" "}
+            for where everything lives in each.
           </p>
 
           <p className="mt-4 text-xs font-medium text-blue-200">
@@ -396,6 +400,103 @@ export default function GuidePage() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-16 px-6 py-14">
+        {/* 0. Layouts */}
+        <section id="layouts" className="snap-start scroll-mt-4">
+          <SectionHeading
+            index="0"
+            title="Start here: Classic and New UI"
+            subtitle="Two layouts over the same workspace. Nothing is stored per layout -- every application, control, note, and chat message is shared, so you can switch back and forth freely."
+            tone="cyan"
+          />
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-1">
+              <h3 className="text-base font-bold text-slate-900">Switching layouts</h3>
+              <div className="mt-3">
+                <UiModePicker />
+              </div>
+              <ul className="mt-4 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-600">
+                <li><strong className="text-slate-800">Classic:</strong> &ldquo;Try new UI&rdquo; at the top-right of the header.</li>
+                <li><strong className="text-slate-800">New UI:</strong> &ldquo;Classic UI&rdquo; at the right of the top bar.</li>
+                <li>Your choice is remembered in this browser.</li>
+                <li>Shareable links: add <code className="rounded bg-slate-100 px-1 text-xs">?ui=hub</code> or <code className="rounded bg-slate-100 px-1 text-xs">?ui=classic</code> to any page.</li>
+              </ul>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-2.5 font-semibold">Task</th>
+                    <th className="px-4 py-2.5 font-semibold">Classic</th>
+                    <th className="px-4 py-2.5 font-semibold">New UI</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-700">
+                  {[
+                    ["Home screen", "Flat Controls list (/) with the assistant docked on the right", "Dashboard (/) -- a card per application"],
+                    ["Work on controls", "The home screen", "Sidebar → Controls (/controls), or click a control row on a card"],
+                    ["Application context & bulk actions", "“Application View” button → Applications", "Sidebar → Applications, or “View details” on a card"],
+                    ["Progress at a glance", "Header tiles -- click one to filter the control list", "Summary strip under the top bar -- click a cell to drill down"],
+                    ["Assistant / chat", "Docked column; “Collapse” to hide it", "Slide-over drawer: sidebar “Assistant” or the floating button"],
+                    ["Executive summary PDF", "“Executive Summary” above the control list", "Sidebar → Executive summary, or “Export” on the dashboard"],
+                    ["This guide", "Click “Control Governor” in the header", "“Take the tour” in the top bar, or sidebar → Guide"],
+                    ["Chat keyboard shortcuts", "“Help” under the message box", "“Help” under the message box"],
+                  ].map(([task, classic, hub]) => (
+                    <tr key={task} className="border-b border-slate-100 last:border-b-0 align-top">
+                      <td className="px-4 py-2.5 font-medium text-slate-900">{task}</td>
+                      <td className="px-4 py-2.5">{classic}</td>
+                      <td className="px-4 py-2.5">{hub}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <h3 className="mb-3 mt-8 text-lg font-bold text-slate-900">Reading the New UI dashboard</h3>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <FunctionCard
+              tone="cyan"
+              title="Application cards"
+              description="Name, team, hosting, data classification, and context status. The bar shows checklist tasks done (green), open with evidence notes (blue), and open with nothing yet (grey); an orange pill counts controls needing attention."
+            />
+            <FunctionCard
+              tone="cyan"
+              title="Control rows"
+              description="Pill = open tasks on the control (red outline when it needs attention, dashed “–” when nothing has been recorded yet), then the client code (e.g. IS08) and icons for homework, control status, and evidence notes."
+            />
+            <FunctionCard
+              tone="cyan"
+              title="Click a control row"
+              description="Opens Controls already narrowed to that control using the existing Apps and Control filters, with the control expanded. Clear or change them in the filter bar. Controls without a client code narrow to their application only."
+            />
+            <FunctionCard
+              tone="blue"
+              title="Owner & context (i)"
+              description="The small (i) on each card pops up the owner, tech owner, purpose, process, hosting, data class, financial relevance, people & systems, and a one-line status. Empty fields read “Not captured” so gaps stand out. Esc or click away to close."
+            />
+            <FunctionCard
+              tone="blue"
+              title="Search, filters, tabs"
+              description="Search across names, owners, contacts, and controls; filter by framework, context status, or stage. ★ marks a favourite (kept in this browser) for the Favorites tab; “+ New” opens the assistant, where applications are created. “Legend” explains every colour and icon."
+            />
+            <FunctionCard
+              tone="blue"
+              title="Collapsible sidebar"
+              description="The « button at the bottom of the sidebar shrinks it to icons only (names as tooltips, counts as small badges); » expands it again. Remembered in this browser."
+            />
+          </div>
+
+          <p className="mt-6 max-w-4xl text-sm leading-6 text-slate-600">
+            <strong className="text-slate-800">Shared by both layouts:</strong> the same
+            control cards (checklists, notes, QA assessment, evidence-vs-data analysis,
+            change log), the same Applications detail view, the same assistant and
+            evidence uploads, and the same teal / Figtree visual style. Every action
+            described in the sections below works identically in either layout.
+          </p>
+        </section>
+
         {/* 1. Architecture */}
         <section id="architecture" className="snap-start scroll-mt-4">
           <SectionHeading

@@ -19,10 +19,6 @@ import ProgressSummary, {
   type ProgressTileKey,
 } from "@/components/ProgressSummary";
 import ThemeToggle from "@/components/ThemeToggle";
-import RainToggle from "@/components/RainToggle";
-import RoyalEffectToggle from "@/components/RoyalEffectToggle";
-import { RoyalIcon } from "@/components/RoyalIcon";
-import { useTheme } from "@/components/ThemeProvider";
 import { useAppState } from "@/components/AppStateProvider";
 
 type HeaderProps = {
@@ -58,14 +54,6 @@ function ChevronIcon({ collapsed }: { collapsed: boolean }) {
 }
 
 function BrandMark({ size }: { size: number }) {
-  const { theme } = useTheme();
-  if (theme === "royal") {
-    return (
-      <span className="royal-crown-glow inline-flex">
-        <RoyalIcon name="crown" size={size} color="#D4AF37" glow />
-      </span>
-    );
-  }
   return <AppLogo size={size} />;
 }
 
@@ -74,8 +62,6 @@ export default function Header({ progress }: HeaderProps) {
   const { applyQuickFilter } = useAppState();
   const router = useRouter();
   const pathname = usePathname();
-  const { theme } = useTheme();
-  const isRoyal = theme === "royal";
 
   // Centralized here (rather than duplicated in every page that
   // renders <Header>) since Header is the one thing all three routes
@@ -98,8 +84,10 @@ export default function Header({ progress }: HeaderProps) {
 
   if (collapsed) {
     return (
-      <header className="border-b border-slate-200 bg-white shadow-sm">
-        <div className="mx-auto flex w-full max-w-[1900px] items-center justify-between gap-2 px-5 py-2">
+      <header
+        className={`border-b border-slate-200 bg-white shadow-sm`}
+      >
+          <div className="mx-auto flex w-full max-w-[1900px] items-center justify-between gap-2 px-5 py-2">
           <div className="flex items-center gap-2">
             <Link
               href="/guide"
@@ -110,7 +98,7 @@ export default function Header({ progress }: HeaderProps) {
             >
               <BrandMark size={20} />
               <h1
-                className={`bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-lg font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0] royal:bg-none royal:text-[#F4CF47] ${isRoyal ? "royal-gold-text" : ""}`}
+                className={`bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-lg font-bold leading-tight tracking-tight text-transparent`}
               >
                 Control Governor
               </h1>
@@ -126,8 +114,6 @@ export default function Header({ progress }: HeaderProps) {
 
           <div className="flex shrink-0 items-center gap-2">
             <ThemeToggle />
-            <RainToggle />
-            <RoyalEffectToggle />
           </div>
         </div>
       </header>
@@ -135,7 +121,9 @@ export default function Header({ progress }: HeaderProps) {
   }
 
   return (
-    <header className="border-b border-slate-200 bg-white shadow-sm">
+    <header
+      className={`border-b border-slate-200 bg-white shadow-sm`}
+    >
       <div className="mx-auto grid w-full max-w-[1900px] gap-4 px-5 py-3 xl:grid-cols-[3fr_1fr] xl:items-stretch">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
@@ -150,7 +138,7 @@ export default function Header({ progress }: HeaderProps) {
                 >
                   <BrandMark size={28} />
                   <h1
-                    className={`bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-2xl font-bold leading-tight tracking-tight text-transparent dark:bg-none dark:text-[#8affc0] royal:bg-none royal:text-[#F4CF47] ${isRoyal ? "royal-gold-text" : ""}`}
+                    className={`bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-2xl font-bold leading-tight tracking-tight text-transparent`}
                   >
                     Control Governor
                   </h1>
@@ -169,7 +157,7 @@ export default function Header({ progress }: HeaderProps) {
               Workspace: CORE
             </span>
 
-            <span className="rounded-full bg-purple-100 px-4 py-2 text-sm font-medium text-purple-700">
+            <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700">
               Framework: SOX
             </span>
           </div>
@@ -194,8 +182,6 @@ export default function Header({ progress }: HeaderProps) {
         <div className="flex min-w-0 flex-col items-center gap-2 xl:items-end">
           <div className="flex shrink-0 items-center gap-2">
             <ThemeToggle />
-            <RainToggle />
-            <RoyalEffectToggle />
           </div>
 
           {progress ? (

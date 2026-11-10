@@ -1,117 +1,69 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 
-export type Theme = "light" | "dark" | "royal";
+// The app has one colour theme (light) and two UI layouts:
+// "classic" -- the original header + control list layout, and
+// "hub"     -- the newer Compliance Hub layout (sidebar shell, teal
+//              accent, card grid), styled under [data-ui="hub"].
+// `theme` stays on the context (always "light") so existing
+// theme-aware component code keeps compiling.
+export type Theme = "light";
+export type UiMode = "classic" | "hub";
 
-const THEME_STORAGE_KEY = "control-governor-theme";
-const RAIN_STORAGE_KEY = "control-governor-rain-effect";
-const ROYAL_EFFECT_STORAGE_KEY = "control-governor-royal-effect";
+const UI_MODE_STORAGE_KEY = "control-governor-ui";
+const UI_MODE_EVENT = "control-governor-ui-change";
+
+function readUiMode(): UiMode {
+  try {
+    return window.localStorage.getItem(UI_MODE_STORAGE_KEY) === "hub" ? "hub" : "classic";
+  } catch {
+    return "classic";
+  }
+}
+
+function subscribe(onChange: () => void) {
+  window.addEventListener(UI_MODE_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(UI_MODE_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+function setUiMode(mode: UiMode) {
+  try {
+    window.localStorage.setItem(UI_MODE_STORAGE_KEY, mode);
+  } catch {}
+  window.dispatchEvent(new Event(UI_MODE_EVENT));
+}
 
 const ThemeContext = createContext<{
   theme: Theme;
-  setTheme: (theme: Theme) => void;
-  rainEffectEnabled: boolean;
-  toggleRainEffect: () => void;
-  royalEffectEnabled: boolean;
-  toggleRoyalEffect: () => void;
+  uiMode: UiMode;
+  setUiMode: (mode: UiMode) => void;
 } | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("light");
-  const [rainEffectEnabled, setRainEffectEnabled] = useState(false);
-  const [royalEffectEnabled, setRoyalEffectEnabled] = useState(false);
+  const uiMode = useSyncExternalStore(subscribe, readUiMode, () => "classic" as UiMode);
 
   useEffect(() => {
-    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (
-      storedTheme === "dark" ||
-      storedTheme === "light" ||
-      storedTheme === "royal"
-    ) {
-      setThemeState(storedTheme);
-    }
-
-    const storedRain = window.localStorage.getItem(RAIN_STORAGE_KEY);
-    if (storedRain === "on") {
-      setRainEffectEnabled(true);
-    } else if (storedRain === null && storedTheme === "dark") {
-      // First time this key exists: match the dark theme's historical
-      // behavior of always showing the rain animation.
-      setRainEffectEnabled(true);
-    }
-
-    const storedRoyalEffect = window.localStorage.getItem(
-      ROYAL_EFFECT_STORAGE_KEY
-    );
-    if (storedRoyalEffect === "on") {
-      setRoyalEffectEnabled(true);
-    } else if (storedRoyalEffect === null && storedTheme === "royal") {
-      setRoyalEffectEnabled(true);
-    }
+    // Dark/royal themes were removed -- always render the light theme
+    // and drop their old saved preferences.
+    document.documentElement.setAttribute("data-theme", "light");
+    try {
+      window.localStorage.removeItem("control-governor-theme");
+      window.localStorage.removeItem("control-governor-rain-effect");
+      window.localStorage.removeItem("control-governor-royal-effect");
+    } catch {}
   }, []);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
-
-  useEffect(() => {
-    document.documentElement.setAttribute(
-      "data-rain",
-      rainEffectEnabled ? "on" : "off"
-    );
-    window.localStorage.setItem(
-      RAIN_STORAGE_KEY,
-      rainEffectEnabled ? "on" : "off"
-    );
-  }, [rainEffectEnabled]);
-
-  useEffect(() => {
-    document.documentElement.setAttribute(
-      "data-royal-effect",
-      royalEffectEnabled ? "on" : "off"
-    );
-    window.localStorage.setItem(
-      ROYAL_EFFECT_STORAGE_KEY,
-      royalEffectEnabled ? "on" : "off"
-    );
-  }, [royalEffectEnabled]);
-
-  // Switching into the dark theme also turns the rain animation on, and
-  // switching into royal turns the coin-rain effect on -- each theme's
-  // own effect flag, kept independent so entering one theme never
-  // silently flips the other theme's effect toggle. Switching away
-  // leaves each flag as the user last set it via its own toggle button.
-  function setTheme(next: Theme) {
-    setThemeState(next);
-    if (next === "dark") {
-      setRainEffectEnabled(true);
-    }
-    if (next === "royal") {
-      setRoyalEffectEnabled(true);
-    }
-  }
-
-  function toggleRainEffect() {
-    setRainEffectEnabled((current) => !current);
-  }
-
-  function toggleRoyalEffect() {
-    setRoyalEffectEnabled((current) => !current);
-  }
+    document.documentElement.setAttribute("data-ui", uiMode);
+  }, [uiMode]);
 
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        setTheme,
-        rainEffectEnabled,
-        toggleRainEffect,
-        royalEffectEnabled,
-        toggleRoyalEffect,
-      }}
-    >
+    <ThemeContext.Provider value={{ theme: "light", uiMode, setUiMode }}>
       {children}
     </ThemeContext.Provider>
   );

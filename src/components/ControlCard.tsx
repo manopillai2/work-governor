@@ -16,13 +16,8 @@ import remarkGfm from "remark-gfm";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import HamburgerIcon from "@/components/HamburgerIcon";
 import PlusMinusIcon from "@/components/PlusMinusIcon";
-import {
-  RoyalIcon,
-  RoyalCardCorners,
-  type RoyalIconName,
-} from "@/components/RoyalIcon";
-import { useTheme } from "@/components/ThemeProvider";
 import { noteSourceLabel } from "@/services/notes";
+import { NoteBullets } from "@/components/NoteBullets";
 import { generateControlSummaryPdf } from "@/services/exportReport";
 import type {
   ChecklistChangeLogEntry,
@@ -370,8 +365,6 @@ export default function ControlCard({
     return "Not Started";
   }, [relevantTasks]);
 
-  const { theme } = useTheme();
-  const isRoyal = theme === "royal";
 
   const cardBody = (
     <div
@@ -379,9 +372,8 @@ export default function ControlCard({
         expanded
           ? "border-slate-200 border-l-4 border-l-blue-500"
           : "border-slate-200"
-      } ${isRoyal ? "royal-corner-frame royal-letter-texture royal-scroll-main royal-scroll-torn royal-scroll-paper" : ""}`}
+      }`}
     >
-      {isRoyal ? <RoyalCardCorners /> : null}
       <div className="flex w-full items-start justify-between gap-4 p-4 transition hover:bg-slate-50">
         <button
           type="button"
@@ -574,7 +566,7 @@ export default function ControlCard({
       {(() => {
         const body = (
           <div
-            className={`space-y-2 border-t border-slate-200 p-3 ${isRoyal ? "royal-letter-texture" : ""}`}
+            className={`space-y-2 border-t border-slate-200 p-3`}
           >
             <CollapsibleSection
               title="QA Assessment"
@@ -838,33 +830,10 @@ export default function ControlCard({
           </div>
         );
 
-        if (isRoyal) {
-          return (
-            <div
-              className="royal-unroll"
-              data-open={expanded}
-            >
-              <div className="royal-unroll-inner">
-                {body}
-              </div>
-            </div>
-          );
-        }
-
         return expanded ? body : null;
       })()}
     </div>
   );
-
-  if (isRoyal) {
-    return (
-      <div className="royal-scroll-wrapper">
-        <div className="royal-scroll-rod royal-scroll-rod--red" />
-        {cardBody}
-        <div className="royal-scroll-rod royal-scroll-rod--red" />
-      </div>
-    );
-  }
 
   return cardBody;
 }
@@ -954,21 +923,11 @@ function IconDownload() {
 // line rather than in its own labeled block in the hamburger menu, so
 // it costs no extra header space. Just the one control status --
 // checklist status and QA score are intentionally not shown here.
-const STATUS_ROYAL_ICON: Record<ControlStatus, RoyalIconName> = {
-  New: "pawn",
-  "Checklist Review Pending": "bishop",
-  "In Progress": "knight",
-  "Ready for Review": "rook",
-  Completed: "king",
-  "On Hold": "swords",
-};
-
 function ControlStatusBadge({
   status,
 }: {
   status: ControlStatus;
 }) {
-  const { theme } = useTheme();
   const classes: Record<
     ControlStatus,
     string
@@ -989,13 +948,6 @@ function ControlStatusBadge({
     <span
       className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}
     >
-      {theme === "royal" ? (
-        <RoyalIcon
-          name={STATUS_ROYAL_ICON[status]}
-          size={10}
-          color="currentColor"
-        />
-      ) : null}
       Status: {status}
     </span>
   );
@@ -1217,15 +1169,15 @@ function ChecklistTaskRow({
                 {note.id}
               </p>
 
-              <p
+              <div
                 className={
                   note.documentDeleted
                     ? "text-xs leading-5 text-slate-400 line-through decoration-slate-400"
                     : "text-xs leading-5 text-slate-600"
                 }
               >
-                {note.text}
-              </p>
+                <NoteBullets text={note.text} />
+              </div>
 
               {note.documentDeleted ? (
                 <p className="mt-0.5 text-[11px] font-medium text-rose-500">
