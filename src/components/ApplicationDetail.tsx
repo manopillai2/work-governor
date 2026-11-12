@@ -16,8 +16,8 @@ import type {
   Application,
   ApplicationContextInput,
   ComplianceControl,
-  QaScoreLevel,
 } from "@/services/commandEngine";
+import UploadIndicators from "@/components/UploadIndicators";
 
 const ARGOS_MARKDOWN_COMPONENTS: Components = {
   h2: ({ children }) => (
@@ -297,7 +297,7 @@ export default function ApplicationDetail({
           <button
             type="button"
             onClick={onOpenAttachments}
-            title="See every evidence and data file attached to this application, and delete any that are no longer valid"
+            title="See every evidence and testing data file attached to this application, and delete any that are no longer valid"
             className="rounded-lg border border-slate-600 bg-slate-800/60 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700"
           >
             Attachments
@@ -351,7 +351,7 @@ export default function ApplicationDetail({
         </CollapsibleSection>
 
         <CollapsibleSection
-          title="Evidence vs. Data Summary"
+          title="Evidence vs. Testing Data Summary"
           description="A high-level read across every control -- see each control's own section for the detail behind it."
           theme="dark"
           tint="accent"
@@ -401,7 +401,7 @@ export default function ApplicationDetail({
             <p className="text-sm leading-6 text-slate-300">
               Not yet analyzed. This fills in
               once at least one control has
-              both evidence and real data
+              both evidence and testing data
               attached, or click Refresh to
               check now.
             </p>
@@ -737,22 +737,6 @@ function ContextField({
   );
 }
 
-const QA_SCORE_BADGE_CLASSES: Record<
-  QaScoreLevel,
-  string
-> = {
-  "Not Started":
-    "bg-slate-800 text-slate-300",
-  "Surface Level":
-    "bg-amber-950 text-amber-300",
-  Developing:
-    "bg-blue-950 text-blue-300",
-  "Well Researched":
-    "bg-indigo-950 text-indigo-300",
-  "Argos Ready":
-    "bg-emerald-950 text-emerald-300",
-};
-
 function WorkProgressSummaryPanel({
   controls,
 }: {
@@ -778,14 +762,11 @@ function WorkProgressSummaryPanel({
               {control.name}
             </span>
 
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                QA_SCORE_BADGE_CLASSES[
-                  control.qaScore
-                ]
-              }`}
-            >
-              QA: {control.qaScore}
+            <span className="rounded-md bg-white px-1.5 py-1">
+              <UploadIndicators
+                control={control}
+                compact
+              />
             </span>
           </div>
 

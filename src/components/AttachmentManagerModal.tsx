@@ -197,7 +197,7 @@ export default function AttachmentManagerModal({
               Attachments — {application.name}
             </h4>
             <p className="mt-1 text-xs text-slate-400">
-              Every evidence and data file uploaded for
+              Every evidence and testing data file uploaded for
               this application. Deleting one strikes
               through the notes it produced instead of
               removing them, and flags affected controls
@@ -233,7 +233,7 @@ export default function AttachmentManagerModal({
               },
               {
                 key: "data",
-                label: "Data",
+                label: "Testing data",
                 count: documents.filter(
                   (document) =>
                     document.kind === "data"
@@ -306,7 +306,7 @@ export default function AttachmentManagerModal({
                           >
                             {document.kind ===
                             "data"
-                              ? "Data"
+                              ? "Testing data"
                               : "Evidence"}
                           </span>
                         </div>

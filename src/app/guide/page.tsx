@@ -288,37 +288,6 @@ function CategoryChip({
   );
 }
 
-const QA_LEVELS: { level: string; description: string; tone: Tone }[] = [
-  {
-    level: "Not Started",
-    description: "No meaningful notes have been recorded yet.",
-    tone: "slate",
-  },
-  {
-    level: "Surface Level",
-    description:
-      "A few generic notes exist, but the checklist is still essentially the default one.",
-    tone: "amber",
-  },
-  {
-    level: "Developing",
-    description:
-      "Notes contain real specifics (named systems, owners, identities) and have prompted a refinement.",
-    tone: "cyan",
-  },
-  {
-    level: "Well Researched",
-    description:
-      "The checklist has been meaningfully reshaped; sources, owners, and access methods are concrete.",
-    tone: "blue",
-  },
-  {
-    level: "Argos Ready",
-    description:
-      "Real data -- not evidence, not a well-written plan -- backs every claim this control depends on, with zero remaining \"What's Missing From Data\" gaps. Evidence-complete or plan-complete alone doesn't round up to Argos Ready.",
-    tone: "emerald",
-  },
-];
 
 export default function GuidePage() {
   return (
@@ -364,8 +333,8 @@ export default function GuidePage() {
           </p>
 
           <p className="mt-3 max-w-2xl text-base leading-7 text-blue-50">
-            It now also ingests the underlying evidence and real
-            application data behind every control, tracks the two
+            It now also ingests the underlying evidence and testing
+            data behind every control, tracks the two
             separately with full attribution, and actively surfaces where
             they diverge -- driving the shift from screenshot-style
             evidence to authoritative, system-generated data.
@@ -435,12 +404,12 @@ export default function GuidePage() {
                 <tbody className="text-slate-700">
                   {[
                     ["Home screen", "Flat Controls list (/) with the assistant docked on the right", "Dashboard (/) -- a card per application"],
-                    ["Work on controls", "The home screen", "Sidebar → Controls (/controls), or click a control row on a card"],
-                    ["Application context & bulk actions", "“Application View” button → Applications", "Sidebar → Applications, or “View details” on a card"],
+                    ["Work on controls", "The home screen", "Sidebar → Workspace → Controls (/controls, the control matrix), or click a control on the dashboard / an application card"],
+                    ["Application context & bulk actions", "“Application View” button → Applications", "Sidebar → Workspace → Applications, or “View details” on a card"],
                     ["Progress at a glance", "Header tiles -- click one to filter the control list", "Summary strip under the top bar -- click a cell to drill down"],
                     ["Assistant / chat", "Docked column; “Collapse” to hide it", "Slide-over drawer: sidebar “Assistant” or the floating button"],
-                    ["Executive summary PDF", "“Executive Summary” above the control list", "Sidebar → Executive summary, or “Export” on the dashboard"],
-                    ["This guide", "Click “Control Governor” in the header", "“Take the tour” in the top bar, or sidebar → Guide"],
+                    ["Executive summary PDF", "“Executive Summary” above the control list", "Sidebar → Reports → Executive summary, or “Executive summary” on the dashboard"],
+                    ["This guide", "Click “Control Governor” in the header", "“Take the tour” in the top bar, or sidebar → Support → Guide"],
                     ["Chat keyboard shortcuts", "“Help” under the message box", "“Help” under the message box"],
                   ].map(([task, classic, hub]) => (
                     <tr key={task} className="border-b border-slate-100 last:border-b-0 align-top">
@@ -490,7 +459,8 @@ export default function GuidePage() {
 
           <p className="mt-6 max-w-4xl text-sm leading-6 text-slate-600">
             <strong className="text-slate-800">Shared by both layouts:</strong> the same
-            control cards (checklists, notes, QA assessment, evidence-vs-data analysis,
+            control cards (checklists, notes, evidence / testing data indicators,
+            evidence-vs-testing-data analysis,
             change log), the same Applications detail view, the same assistant and
             evidence uploads, and the same teal / Figtree visual style. Every action
             described in the sections below works identically in either layout.
@@ -776,7 +746,7 @@ export default function GuidePage() {
             <FunctionCard
               tone="emerald"
               title="Adaptive note analysis"
-              description="Every note against a checklist item or control is analyzed immediately: it can add a new item or mark one irrelevant, refreshing the progress summary and QA score. Any new item must tie back to this control's own objective or risk -- the change log records which part it serves, not just that something changed."
+              description="Every note against a checklist item or control is analyzed immediately: it can add a new item or mark one irrelevant, refreshing the progress summary. Any new item must tie back to this control's own objective or risk -- the change log records which part it serves, not just that something changed."
             />
             <FunctionCard
               tone="emerald"
@@ -796,7 +766,7 @@ export default function GuidePage() {
             <FunctionCard
               tone="amber"
               title="Executive progress report (PDF)"
-              description="Generates a formatted PDF: executive summary, control-status breakdown, per-application progress, QA scores, attention-required items, and every item marked irrelevant with its reason."
+              description="Generates a formatted PDF: executive summary, control-status breakdown, per-application progress, evidence / testing data uploads, attention-required items, and every item marked irrelevant with its reason."
             />
             <FunctionCard
               tone="rose"
@@ -826,7 +796,7 @@ export default function GuidePage() {
             <FunctionCard
               tone="emerald"
               title="Evidence & data attachments"
-              description="Attach evidence documents (workpapers, policies, screenshots) or real application data (exports, configs) from the chat -- multiple files at once, any of docx/pptx/xlsx/pdf/csv/json/txt/md, no size limit. Full text is stored for future Q&A, and every note it produces is tagged with its source kind, filename, and a unique note ID."
+              description="Attach evidence documents (workpapers, policies, screenshots) or testing data (exports, configs) from the chat -- multiple files at once, any of docx/pptx/xlsx/pdf/csv/json/txt/md, no size limit. Full text is stored for future Q&A, and every note it produces is tagged with its source kind, filename, and a unique note ID."
             />
             <FunctionCard
               tone="emerald"
@@ -835,8 +805,8 @@ export default function GuidePage() {
             />
             <FunctionCard
               tone="emerald"
-              title="Evidence vs. Data Gap Analysis"
-              description="Per control: a structured breakdown of what each evidence document and data file claims, where they agree or contradict, and specifically what real data is still missing to independently back up each piece of evidence -- the throughline toward retiring screenshot-style evidence. Every gap it finds automatically becomes a matching Access or Evidence Collection checklist task, so it turns into a concrete ask instead of just an observation. A high-level version rolls up at the application level. Refreshes automatically after an upload, or on demand."
+              title="Evidence vs. Testing Data Gap Analysis"
+              description="Per control: a structured breakdown of what each evidence document and testing data file claims, where they agree or contradict, and specifically what testing data is still missing to independently back up each piece of evidence -- the throughline toward retiring screenshot-style evidence. Every gap it finds automatically becomes a matching Access or Evidence Collection checklist task, so it turns into a concrete ask instead of just an observation. A high-level version rolls up at the application level. Refreshes automatically after an upload, or on demand."
             />
             <FunctionCard
               tone="violet"
@@ -846,38 +816,10 @@ export default function GuidePage() {
           </div>
         </section>
 
-        {/* 6. QA rubric */}
-        <section id="qa-rubric" className="snap-start scroll-mt-4">
-          <SectionHeading
-            index="6"
-            title="QA Score Rubric"
-            subtitle="Reflects how deep the research is and how strongly the user's own notes have shaped the checklist toward solid, Argos-ready evidence -- not a pass/fail control status."
-            tone="indigo"
-          />
-
-          <div className="space-y-2">
-            {QA_LEVELS.map((item) => (
-              <div
-                key={item.level}
-                className={`flex flex-col gap-1 rounded-xl border p-4 sm:flex-row sm:items-center sm:gap-4 ${TONE_CARD[item.tone]}`}
-              >
-                <span
-                  className={`inline-flex w-40 shrink-0 items-center justify-center rounded-full px-3 py-1 text-xs font-bold text-white ${TONE_BADGE[item.tone]}`}
-                >
-                  {item.level}
-                </span>
-                <span className="text-sm leading-6 text-slate-700">
-                  {item.description}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* 7. Data model */}
+        {/* 6. Data model */}
         <section id="data-model" className="snap-start scroll-mt-4">
           <SectionHeading
-            index="7"
+            index="6"
             title="Data Model"
             subtitle="Two Postgres databases back the app: the core workspace database, and a separate learning database."
             tone="slate"
@@ -899,11 +841,11 @@ export default function GuidePage() {
                   ],
                   [
                     "controls",
-                    "One row per control on an application: framework, statuses, objective/risk/evidence fields, evidence-vs-data gap analysis, checklist, change log, progress summary, and QA score.",
+                    "One row per control on an application: framework, statuses, objective/risk/evidence fields, evidence-vs-testing-data gap analysis, checklist, change log, and progress summary.",
                   ],
                   [
                     "evidence_documents",
-                    "One row per uploaded evidence or data file: application, filename, kind (evidence/data), extracted text, and upload metadata. Notes reference these by ID to know which document they came from.",
+                    "One row per uploaded evidence or testing data file: application, filename, kind (evidence / testing data), extracted text, and upload metadata. Notes reference these by ID to know which document they came from.",
                   ],
                   [
                     "chat_messages",

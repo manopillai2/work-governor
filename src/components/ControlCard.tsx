@@ -8,6 +8,9 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
+
+import ControlDetailsButton from "@/components/ControlDetailsButton";
+import UploadIndicators from "@/components/UploadIndicators";
 import ReactMarkdown, {
   type Components,
 } from "react-markdown";
@@ -27,14 +30,13 @@ import type {
   ControlStatus,
   Framework,
   Note,
-  QaScoreLevel,
   TaskCategory,
   WorkflowStage,
 } from "@/services/commandEngine";
 
 // Light-themed (this section sits on a white/indigo-tinted card, not
 // the dark chat/Argos panels elsewhere) markdown renderer for the
-// structured Evidence vs. Data Gap Analysis text -- headings and
+// structured Evidence vs. Testing Data Gap Analysis text -- headings and
 // bullets, no tables or code blocks expected from that content.
 const GAP_ANALYSIS_MARKDOWN_COMPONENTS: Components =
   {
@@ -95,8 +97,6 @@ type ControlCardProps = {
   evidenceDataGapAnalysis?: string;
   evidenceDataGapAnalysisStale?: boolean;
 
-  qaScore?: QaScoreLevel;
-  qaScoreRationale?: string;
   checklistChangeLog?: ChecklistChangeLogEntry[];
 
   nextTasks?: ChecklistTask[];
@@ -166,8 +166,6 @@ export default function ControlCard({
   evidenceDataGapAnalysis = "",
   evidenceDataGapAnalysisStale = false,
 
-  qaScore = "Not Started",
-  qaScoreRationale = "",
   checklistChangeLog = [],
 
   nextTasks = [],
@@ -262,8 +260,6 @@ export default function ControlCard({
       evidenceStrategy,
       evidenceDataGapAnalysis,
       evidenceDataGapAnalysisStale,
-      qaScore,
-      qaScoreRationale,
       notes,
       nextTasks,
       checklistChangeLog,
@@ -432,6 +428,28 @@ export default function ControlCard({
         </button>
 
         <div className="relative flex shrink-0 items-center gap-2 self-center">
+          <span className="mr-1 hidden sm:inline-flex">
+            <UploadIndicators
+              control={{ notes, nextTasks }}
+            />
+          </span>
+
+          <ControlDetailsButton
+            details={{
+              controlName,
+              applicationName: applicationTag
+                ? `${applicationTag.appName}${applicationTag.context ? ` (${applicationTag.context})` : ""}`
+                : undefined,
+              framework,
+              globalControlReference,
+              clientContext,
+              controlObjective,
+              controlRisk,
+              applicabilityRationale,
+              evidenceStrategy,
+            }}
+          />
+
           <button
             type="button"
             onClick={onToggleExpanded}
@@ -465,7 +483,7 @@ export default function ControlCard({
             ? createPortal(
                 <>
                   <div
-                    className="fixed inset-0 z-40"
+                    className="fixed inset-0 z-[55]"
                     onClick={() =>
                       setMenuOpen(false)
                     }
@@ -479,7 +497,7 @@ export default function ControlCard({
                       right:
                         menuPosition.right,
                     }}
-                    className="z-50 w-64 rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    className="z-[56] w-64 rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
                   >
                     <button
                       type="button"
@@ -569,55 +587,8 @@ export default function ControlCard({
             className={`space-y-2 border-t border-slate-200 p-3`}
           >
             <CollapsibleSection
-              title="QA Assessment"
-            description="Why the QA badge above is what it is right now."
-            tint="accent"
-            open={openSectionKey === "qa"}
-            onToggle={() =>
-              toggleSection("qa")
-            }
-          >
-            <p className="text-sm leading-6 text-indigo-800">
-              {qaScoreRationale ||
-                "No work notes captured yet. Add a note against a checklist item below to get started."}
-            </p>
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            title="Control Details"
-            open={
-              openSectionKey === "details"
-            }
-            onToggle={() =>
-              toggleSection("details")
-            }
-          >
-            <div className="grid gap-3 xl:grid-cols-2">
-              <ControlContextBox
-                title="Control Objective"
-                content={controlObjective}
-              />
-
-              <ControlContextBox
-                title="Risk Addressed"
-                content={controlRisk}
-              />
-
-              <ControlContextBox
-                title="Why This Control Applies"
-                content={applicabilityRationale}
-              />
-
-              <ControlContextBox
-                title="Evidence Strategy"
-                content={evidenceStrategy}
-              />
-            </div>
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            title="Evidence vs. Data Gap Analysis"
-            description="Where attached evidence and real collected data agree, and what data is still missing to independently back up the evidence."
+            title="Evidence vs. Testing Data Gap Analysis"
+            description="Where attached evidence and uploaded testing data agree, and what testing data is still missing to independently back up the evidence."
             tint="accent"
             open={
               openSectionKey ===
@@ -675,7 +646,7 @@ export default function ControlCard({
                 Not yet analyzed. This fills in
                 once the control has both an
                 attached evidence document and a
-                real data file, or click Refresh
+                testing data file, or click Refresh
                 to check now.
               </p>
             )}
@@ -838,27 +809,6 @@ export default function ControlCard({
   return cardBody;
 }
 
-function ControlContextBox({
-  title,
-  content,
-}: {
-  title: string;
-  content: string;
-}) {
-  return (
-    <div className="h-full rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <h5 className="text-base font-bold text-slate-900">
-        {title}
-      </h5>
-
-      <p className="mt-2 text-sm leading-6 text-slate-600">
-        {content ||
-          "Not yet defined. Regenerate the contextual checklist after completing the application context."}
-      </p>
-    </div>
-  );
-}
-
 // Small action-menu icons, matching the app's stroke-based icon style
 // (1.4-1.7 width, rounded caps) used everywhere else.
 const MENU_ICON_PROPS = {
@@ -922,7 +872,7 @@ function IconDownload() {
 // Compact, sits inline on the card header next to the task-progress
 // line rather than in its own labeled block in the hamburger menu, so
 // it costs no extra header space. Just the one control status --
-// checklist status and QA score are intentionally not shown here.
+// checklist status is intentionally not shown here.
 function ControlStatusBadge({
   status,
 }: {

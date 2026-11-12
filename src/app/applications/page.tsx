@@ -2,15 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import ApplicationDetail from "@/components/ApplicationDetail";
 import ChatPanel from "@/components/ChatPanel";
 import ChevronMiniIcon from "@/components/ChevronMiniIcon";
 import ContextStatusBadge from "@/components/ContextStatusBadge";
 import AppFrame from "@/components/layout/AppFrame";
-import { buildControlDrillDownFilters } from "@/services/applicationFilters";
-import { HubAppCard, I, Icon, T } from "@/components/hub/hubUi";
+import { I, Icon, T } from "@/components/hub/hubUi";
+import HubApplicationsGrid from "@/components/hub/HubApplicationsGrid";
 import NavSwitchButton from "@/components/NavSwitchButton";
 import { useAppState } from "@/components/AppStateProvider";
 import { useTheme } from "@/components/ThemeProvider";
@@ -89,7 +88,6 @@ export default function ApplicationsPage() {
 
     openEvidenceModal,
     openAttachmentManager,
-    setFilters,
   } = useAppState();
 
   const [isChatCollapsed, setIsChatCollapsed] =
@@ -97,7 +95,6 @@ export default function ApplicationsPage() {
 
   const { uiMode } = useTheme();
   const isHub = uiMode === "hub";
-  const router = useRouter();
 
   // Master-detail on one page rather than a separate /applications/[id]
   // route -- selecting a tile on the left just swaps what's shown on
@@ -235,7 +232,7 @@ export default function ApplicationsPage() {
                       }
                       onRefreshEvidenceDataGapAnalysis={() =>
                         handleSend(
-                          `Analyze the evidence vs real data gap for ${selectedApplication.id}, across all controls.`
+                          `Analyze the evidence vs testing data gap for ${selectedApplication.id}, across all controls.`
                         )
                       }
                       onPrepEmail={() =>
@@ -257,44 +254,9 @@ export default function ApplicationsPage() {
                   </div>
                 </div>
               ) : isHub ? (
-                <div className="h-full min-h-0 overflow-y-auto overscroll-contain pb-4 pr-1">
-                  <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-2 min-[1150px]:grid-cols-3 min-[1500px]:grid-cols-4">
-                    {applications.map(
-                      (application) => (
-                        <HubAppCard
-                          key={application.id}
-                          app={application}
-                          mono="font-mono"
-                          onOpen={() =>
-                            handleSelect(
-                              application.id
-                            )
-                          }
-                          onOpenControl={(
-                            controlId
-                          ) => {
-                            // Open the control list on exactly this control.
-                            const control =
-                              application.controls.find(
-                                (c) => c.id === controlId
-                              );
-                            if (control) {
-                              setFilters(
-                                buildControlDrillDownFilters(
-                                  application,
-                                  control
-                                )
-                              );
-                            }
-                            router.push(
-                              `/controls?control=${encodeURIComponent(controlId)}`
-                            );
-                          }}
-                        />
-                      )
-                    )}
-                  </div>
-                </div>
+                <HubApplicationsGrid
+                  onOpenApp={handleSelect}
+                />
               ) : selectedApplication ? (
                 <div className="flex h-full min-h-0 gap-3 xl:gap-4">
                   <div className="w-full max-w-xs shrink-0 space-y-3 overflow-y-auto overscroll-contain pr-1">
@@ -344,7 +306,7 @@ export default function ApplicationsPage() {
                       }
                       onRefreshEvidenceDataGapAnalysis={() =>
                         handleSend(
-                          `Analyze the evidence vs real data gap for ${selectedApplication.id}, across all controls.`
+                          `Analyze the evidence vs testing data gap for ${selectedApplication.id}, across all controls.`
                         )
                       }
                       onPrepEmail={() =>

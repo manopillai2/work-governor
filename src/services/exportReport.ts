@@ -1,15 +1,38 @@
 import { jsPDF } from "jspdf";
-import autoTable, {
-  type CellHookData,
-} from "jspdf-autotable";
+import type { CellHookData } from "jspdf-autotable";
 
 import type {
   Application,
   ChecklistTask,
+  ComplianceControl,
   ControlStatus,
   Note,
 } from "./commandEngine";
 import { splitApplicationName } from "./applicationName";
+import { PDF, PDF_SIZE, PDF_STATUS, registerPdfFonts, setPdfFont, themedTable } from "./pdfTheme";
+import { controlUploadState } from "./uploads";
+import { controlTypeKey, needsAttention } from "./controlMetrics";
+import { computeExecutiveMetrics, executiveNarrative } from "./executiveMetrics";
+
+// "Uploaded (2 files)" / "Not uploaded" for one upload kind.
+function uploadedLabel(
+  control: Pick<ComplianceControl, "notes" | "nextTasks">,
+  kind: "evidence" | "testing"
+): string {
+  const state = controlUploadState(control)[kind];
+  if (!state.uploaded) return "Not uploaded";
+  return state.files.length
+    ? `Uploaded (${state.files.length} file${state.files.length === 1 ? "" : "s"})`
+    : "Uploaded";
+}
+
+// Two-line uploads cell for the work progress tables.
+function uploadsSummary(
+  control: Pick<ComplianceControl, "notes" | "nextTasks">
+): string {
+  const state = controlUploadState(control);
+  return `Evidence: ${state.evidence.uploaded ? "Yes" : "No"}\nTesting data: ${state.testing.uploaded ? "Yes" : "No"}`;
+}
 
 const CONTROL_STATUS_ORDER: ControlStatus[] = [
   "Completed",
@@ -72,25 +95,20 @@ function drawSectionBanner(
   marginX: number,
   y: number,
   pageWidth: number,
-  color: [number, number, number]
+  // Kept for call-site compatibility; headings use the app's teal accent.
+  _color?: [number, number, number]
 ): number {
-  const bannerHeight = 22;
-  doc.setFillColor(...color);
-  doc.roundedRect(
-    marginX,
-    y,
-    pageWidth - marginX * 2,
-    bannerHeight,
-    3,
-    3,
-    "F"
-  );
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor(255, 255, 255);
-  doc.text(text, marginX + 10, y + bannerHeight / 2 + 4);
-  doc.setTextColor(0, 0, 0);
-  return y + bannerHeight + 12;
+  void _color;
+  void pageWidth;
+  // The app's section heading: a 3pt teal bar and a small uppercase,
+  // letter-spaced label.
+  doc.setFillColor(...PDF.teal);
+  doc.rect(marginX, y, 2.5, 13, "F");
+  setPdfFont(doc, "bold");
+  doc.setFontSize(PDF_SIZE.section);
+  doc.setTextColor(...PDF.text);
+  doc.text(text.toUpperCase(), marginX + 9, y + 10, { charSpace: 0.6 });
+  return y + 22;
 }
 
 // Adds a new page and returns the reset Y if the given content height
@@ -160,8 +178,6 @@ export type ControlDetailInput = {
   evidenceStrategy: string;
   evidenceDataGapAnalysis: string;
   evidenceDataGapAnalysisStale: boolean;
-  qaScore: string;
-  qaScoreRationale: string;
   notes: Note[];
   nextTasks: ChecklistTask[];
   checklistChangeLog: {
@@ -196,7 +212,7 @@ function renderControlDetailSection(
     [67, 56, 202]
   );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -215,10 +231,10 @@ function renderControlDetailSection(
         control.clientContext || "—",
       ],
       [
-        "QA Score",
-        control.qaScore,
-        "",
-        "",
+        "Evidence",
+        uploadedLabel(control, "evidence"),
+        "Testing Data",
+        uploadedLabel(control, "testing"),
       ],
     ],
     styles: { fontSize: 9, cellPadding: 5 },
@@ -237,10 +253,9 @@ function renderControlDetailSection(
       control.applicabilityRationale,
     ],
     ["Evidence Strategy", control.evidenceStrategy],
-    ["QA Rationale", control.qaScoreRationale],
   ];
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -249,7 +264,6 @@ function renderControlDetailSection(
       label,
       value || "Not yet captured.",
     ]),
-    headStyles: { fillColor: [67, 56, 202], textColor: 255 },
     styles: { fontSize: 9, cellPadding: 6, valign: "top" },
     columnStyles: {
       0: { cellWidth: 140, fontStyle: "bold" },
@@ -259,11 +273,11 @@ function renderControlDetailSection(
   y = getFinalY(doc) + 14;
 
   y = ensureRoom(doc, y, 40);
-  doc.setFont("helvetica", "bold");
+  setPdfFont(doc, "bold");
   doc.setFontSize(10.5);
-  doc.setTextColor(67, 56, 202);
+  doc.setTextColor(...PDF.teal);
   doc.text(
-    `Evidence vs. Data Gap Analysis${
+    `Evidence vs. Testing Data Gap Analysis${
       control.evidenceDataGapAnalysisStale
         ? " (stale — a source document was deleted since this was written)"
         : ""
@@ -271,7 +285,7 @@ function renderControlDetailSection(
     marginX,
     y
   );
-  doc.setTextColor(0, 0, 0);
+  doc.setTextColor(...PDF.text);
   y += 10;
   y =
     drawMarkdownField(
@@ -283,9 +297,9 @@ function renderControlDetailSection(
     ) + 10;
 
   y = ensureRoom(doc, y, 60);
-  doc.setFont("helvetica", "bold");
+  setPdfFont(doc, "bold");
   doc.setFontSize(10.5);
-  doc.setTextColor(67, 56, 202);
+  doc.setTextColor(...PDF.teal);
   doc.text(
     `Checklist (${
       control.nextTasks.filter((t) => t.completed).length
@@ -293,10 +307,10 @@ function renderControlDetailSection(
     marginX,
     y
   );
-  doc.setTextColor(0, 0, 0);
+  doc.setTextColor(...PDF.text);
   y += 10;
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -318,15 +332,14 @@ function renderControlDetailSection(
       ) {
         const value = String(data.cell.raw);
         if (value === "Completed") {
-          data.cell.styles.textColor = [21, 128, 61];
+          data.cell.styles.textColor = PDF.green;
         } else if (value.startsWith("Irrelevant")) {
-          data.cell.styles.textColor = [148, 163, 184];
+          data.cell.styles.textColor = PDF.faint;
         } else if (value === "Required") {
-          data.cell.styles.textColor = [180, 83, 9];
+          data.cell.styles.textColor = PDF.orange;
         }
       }
     },
-    headStyles: { fillColor: [30, 41, 59], textColor: 255 },
     styles: {
       fontSize: 8,
       cellPadding: 5,
@@ -343,14 +356,14 @@ function renderControlDetailSection(
   y = getFinalY(doc) + 14;
 
   y = ensureRoom(doc, y, 40);
-  doc.setFont("helvetica", "bold");
+  setPdfFont(doc, "bold");
   doc.setFontSize(10.5);
-  doc.setTextColor(67, 56, 202);
+  doc.setTextColor(...PDF.teal);
   doc.text("Control Notes", marginX, y);
-  doc.setTextColor(0, 0, 0);
+  doc.setTextColor(...PDF.text);
   y += 10;
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -363,7 +376,6 @@ function renderControlDetailSection(
             note.text,
           ])
         : [["—", "—", "No notes recorded on this control directly."]],
-    headStyles: { fillColor: [30, 41, 59], textColor: 255 },
     styles: { fontSize: 8.5, cellPadding: 5, valign: "top" },
     columnStyles: {
       0: { cellWidth: 70 },
@@ -375,14 +387,14 @@ function renderControlDetailSection(
 
   if (control.checklistChangeLog.length > 0) {
     y = ensureRoom(doc, y, 40);
-    doc.setFont("helvetica", "bold");
+    setPdfFont(doc, "bold");
     doc.setFontSize(10.5);
-    doc.setTextColor(67, 56, 202);
+    doc.setTextColor(...PDF.teal);
     doc.text("Checklist Change Log", marginX, y);
-    doc.setTextColor(0, 0, 0);
+    doc.setTextColor(...PDF.text);
     y += 10;
 
-    autoTable(doc, {
+    themedTable(doc, {
       startY: y,
       margin: { left: marginX, right: marginX },
       theme: "grid",
@@ -394,7 +406,6 @@ function renderControlDetailSection(
         entry.reason,
         entry.changedBy,
       ]),
-      headStyles: { fillColor: [30, 41, 59], textColor: 255 },
       styles: { fontSize: 8, cellPadding: 5, valign: "top" },
       columnStyles: {
         0: { cellWidth: 60 },
@@ -416,16 +427,29 @@ function drawPageFooters(doc: jsPDF, marginX: number): void {
 
   for (let page = 1; page <= pageCount; page += 1) {
     doc.setPage(page);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(120);
+    setPdfFont(doc, "normal");
+    doc.setFontSize(PDF_SIZE.small);
+    doc.setTextColor(...PDF.faint);
+    doc.setDrawColor(...PDF.divider);
+    doc.setLineWidth(0.6);
+    doc.line(
+      marginX,
+      doc.internal.pageSize.getHeight() - 32,
+      pageWidth - marginX,
+      doc.internal.pageSize.getHeight() - 32
+    );
     doc.text(
-      `Control Governor — Page ${page} of ${pageCount}`,
+      "Control Governor · Compliance hub",
+      marginX,
+      doc.internal.pageSize.getHeight() - 20
+    );
+    doc.text(
+      `Page ${page} of ${pageCount}`,
       pageWidth - marginX,
       doc.internal.pageSize.getHeight() - 20,
       { align: "right" }
     );
-    doc.setTextColor(0);
+    doc.setTextColor(...PDF.text);
   }
 }
 
@@ -471,7 +495,7 @@ function drawInlineMarkdown(
   }
 
   doc.setFontSize(fontSize);
-  doc.setFont("helvetica", "normal");
+  setPdfFont(doc, "normal");
   const spaceWidth = doc.getTextWidth(" ");
   const pageHeight = doc.internal.pageSize.getHeight();
 
@@ -490,7 +514,7 @@ function drawInlineMarkdown(
   };
 
   for (const token of tokens) {
-    doc.setFont("helvetica", token.bold ? "bold" : "normal");
+    setPdfFont(doc, token.bold ? "bold" : "normal");
     const wordWidth = doc.getTextWidth(token.text);
     const neededWidth =
       wordWidth + (firstOnLine ? 0 : spaceWidth);
@@ -511,7 +535,7 @@ function drawInlineMarkdown(
     firstOnLine = false;
   }
 
-  doc.setFont("helvetica", "normal");
+  setPdfFont(doc, "normal");
   return cursorY + lineHeight;
 }
 
@@ -599,16 +623,16 @@ function drawMarkdownField(
     if (block.type === "heading") {
       y = ensureRoom(doc, y, 30);
       y += 4;
-      doc.setFont("helvetica", "bold");
+      setPdfFont(doc, "bold");
       doc.setFontSize(10.5);
-      doc.setTextColor(67, 56, 202);
+      doc.setTextColor(...PDF.teal);
       doc.text(block.text, marginX, y);
-      doc.setTextColor(0, 0, 0);
-      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...PDF.text);
+      setPdfFont(doc, "normal");
       y += bodyLineHeight;
     } else if (block.type === "bullet") {
       y = ensureRoom(doc, y, bodyLineHeight * 2);
-      doc.setFont("helvetica", "normal");
+      setPdfFont(doc, "normal");
       doc.setFontSize(bodyFontSize);
       doc.text(block.marker, marginX, y);
       const indent = 14;
@@ -653,12 +677,12 @@ function colorForPercent(
   pct: number
 ): [number, number, number] {
   if (pct >= 75) {
-    return [16, 185, 129];
+    return PDF.green;
   }
   if (pct >= 40) {
-    return [245, 158, 11];
+    return PDF.orange;
   }
-  return [239, 68, 68];
+  return PDF.red;
 }
 
 function drawStatCard(
@@ -671,20 +695,31 @@ function drawStatCard(
   value: string,
   color: [number, number, number]
 ): void {
+  // The app's stat tile: white, hairline border, coloured left edge,
+  // big dark value, small uppercase muted label.
+  doc.setFillColor(...PDF.card);
+  doc.setDrawColor(...PDF.border);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(x, y, w, h, 5, 5, "FD");
   doc.setFillColor(...color);
-  doc.roundedRect(x, y, w, h, 5, 5, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
-  doc.setTextColor(255, 255, 255);
-  doc.text(value, x + w / 2, y + h / 2 - 2, {
-    align: "center",
-  });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text(label, x + w / 2, y + h - 10, {
-    align: "center",
-  });
-  doc.setTextColor(0, 0, 0);
+  doc.roundedRect(x, y, 3, h, 1.5, 1.5, "F");
+  setPdfFont(doc, "bold");
+  doc.setFontSize(PDF_SIZE.stat);
+  doc.setTextColor(...PDF.text);
+  doc.text(value, x + 12, y + h / 2 + 2);
+  // Label shrinks to fit the tile rather than running past it.
+  setPdfFont(doc, "bold");
+  const labelText = label.toUpperCase();
+  const room = w - 18;
+  let size = 6.4;
+  doc.setFontSize(size);
+  while (size > 4.8 && doc.getTextWidth(labelText) + labelText.length * 0.3 > room) {
+    size -= 0.2;
+    doc.setFontSize(size);
+  }
+  doc.setTextColor(...PDF.muted);
+  doc.text(labelText, x + 12, y + h - 10, { charSpace: 0.3 });
+  doc.setTextColor(...PDF.text);
 }
 
 function rawRowValue(
@@ -701,7 +736,12 @@ function rawRowValue(
 // (the same jsPDF instance the table itself is drawing into) rather
 // than closing over an outer variable, since autoTable invokes these
 // hooks itself.
-function progressBarColumn(columnIndex: number) {
+function progressBarColumn(
+  columnIndex: number,
+  // Bar colour; defaults to the completion traffic light. Share-of-total
+  // columns pass the row's own colour instead.
+  colorFor: (pct: number, row: CellHookData["row"]) => [number, number, number] = (pct) => colorForPercent(pct)
+) {
   return {
     didParseCell: (data: CellHookData) => {
       if (
@@ -730,7 +770,7 @@ function progressBarColumn(columnIndex: number) {
       const barY = y + height - padX - barH;
       const barW = width - padX * 2;
 
-      doc.setFillColor(226, 232, 240);
+      doc.setFillColor(...PDF.divider);
       doc.roundedRect(
         x + padX,
         barY,
@@ -741,7 +781,7 @@ function progressBarColumn(columnIndex: number) {
         "F"
       );
 
-      const color = colorForPercent(pct);
+      const color = colorFor(pct, data.row);
       doc.setFillColor(...color);
       doc.roundedRect(
         x + padX,
@@ -753,13 +793,13 @@ function progressBarColumn(columnIndex: number) {
         "F"
       );
 
-      doc.setFont("helvetica", "bold");
+      setPdfFont(doc, "bold");
       doc.setFontSize(7.5);
-      doc.setTextColor(30, 41, 59);
+      doc.setTextColor(...PDF.text);
       doc.text(pctStr, x + width / 2, y + padX + 6, {
         align: "center",
       });
-      doc.setTextColor(0, 0, 0);
+      doc.setTextColor(...PDF.text);
     },
   };
 }
@@ -767,7 +807,7 @@ function progressBarColumn(columnIndex: number) {
 // Comprehensive single-application export: every context field, the
 // application-level evidence-vs-data summary, work progress and Argos
 // rollups, application notes, and a full detail section for every
-// control -- objective/risk/rationale/strategy, QA, evidence-vs-data
+// control -- objective/risk/rationale/strategy, uploads, evidence-vs-testing-data
 // analysis, the complete checklist with per-task notes, control notes,
 // and the checklist change log. Nothing on the Application or
 // ComplianceControl types is left out.
@@ -775,6 +815,7 @@ export function generateApplicationSummaryPdf(
   application: Application
 ): void {
   const doc = new jsPDF({ unit: "pt", format: "letter" });
+  registerPdfFonts(doc);
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 40;
 
@@ -783,13 +824,20 @@ export function generateApplicationSummaryPdf(
   );
   const title = context ? `${appName} (${context})` : appName;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text(`${title} — Application Summary`, marginX, 50);
+  doc.setFillColor(...PDF.teal);
+  doc.rect(0, 0, pageWidth, 5, "F");
+  setPdfFont(doc, "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(...PDF.teal);
+  doc.text("CONTROL GOVERNOR · COMPLIANCE HUB", marginX, 30, { charSpace: 0.8 });
+  doc.setTextColor(...PDF.text);
+  setPdfFont(doc, "bold");
+  doc.setFontSize(PDF_SIZE.title - 2);
+  doc.text(`${title} — Application Summary`, marginX, 52);
 
-  doc.setFont("helvetica", "normal");
+  setPdfFont(doc, "normal");
   doc.setFontSize(10.5);
-  doc.setTextColor(90);
+  doc.setTextColor(...PDF.muted);
   doc.text(
     `Hosting: ${application.hosting || "Unknown"}   |   Context: ${application.contextStatus}   |   ${application.controls.length} control${application.controls.length === 1 ? "" : "s"}`,
     marginX,
@@ -800,7 +848,7 @@ export function generateApplicationSummaryPdf(
     marginX,
     84
   );
-  doc.setTextColor(0);
+  doc.setTextColor(...PDF.text);
 
   let y = 104;
 
@@ -813,7 +861,7 @@ export function generateApplicationSummaryPdf(
     [37, 99, 235]
   );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -854,29 +902,29 @@ export function generateApplicationSummaryPdf(
 
   y = drawSectionBanner(
     doc,
-    "Evidence vs. Data Summary",
+    "Evidence vs. Testing Data Summary",
     marginX,
     y,
     pageWidth,
     [5, 150, 105]
   );
   if (application.evidenceDataGapSummaryStale) {
-    doc.setFont("helvetica", "italic");
+    setPdfFont(doc, "italic");
     doc.setFontSize(8.5);
-    doc.setTextColor(180, 83, 9);
+    doc.setTextColor(...PDF.orange);
     doc.text(
       "Stale — a source document was deleted since this was written.",
       marginX,
       y
     );
-    doc.setTextColor(0, 0, 0);
+    doc.setTextColor(...PDF.text);
     y += 14;
   }
   y =
     drawMarkdownField(
       doc,
       application.evidenceDataGapSummary ||
-        "No evidence-vs-data summary has been generated yet.",
+        "No evidence-vs-testing-data summary has been generated yet.",
       marginX,
       y,
       pageWidth - marginX * 2
@@ -892,25 +940,24 @@ export function generateApplicationSummaryPdf(
     [217, 119, 6]
   );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
-    head: [["Control", "QA Score", "Progress Summary"]],
+    head: [["Control", "Uploads", "Progress Summary"]],
     body:
       application.controls.length > 0
         ? application.controls.map((control) => [
             control.name,
-            control.qaScore,
+            uploadsSummary(control),
             control.progressSummary ||
               "No work notes captured yet.",
           ])
         : [["—", "—", "No controls have been added yet."]],
-    headStyles: { fillColor: [217, 119, 6], textColor: 255 },
     styles: { fontSize: 8.5, cellPadding: 6, valign: "top" },
     columnStyles: {
       0: { cellWidth: 150 },
-      1: { cellWidth: 90 },
+      1: { cellWidth: 110 },
       2: { cellWidth: "auto" },
     },
   });
@@ -943,7 +990,7 @@ export function generateApplicationSummaryPdf(
     [124, 58, 237]
   );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -957,7 +1004,6 @@ export function generateApplicationSummaryPdf(
               "No outstanding access or credential asks.",
             ],
           ],
-    headStyles: { fillColor: [124, 58, 237], textColor: 255 },
     styles: { fontSize: 8.5, cellPadding: 6, valign: "top" },
     columnStyles: {
       0: { cellWidth: 150 },
@@ -976,7 +1022,7 @@ export function generateApplicationSummaryPdf(
     [8, 145, 178]
   );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -989,7 +1035,6 @@ export function generateApplicationSummaryPdf(
               "Not yet defined.",
           ])
         : [["—", "No controls have been added yet."]],
-    headStyles: { fillColor: [8, 145, 178], textColor: 255 },
     styles: { fontSize: 8.5, cellPadding: 6, valign: "top" },
     columnStyles: {
       0: { cellWidth: 150 },
@@ -1008,7 +1053,7 @@ export function generateApplicationSummaryPdf(
     [190, 24, 93]
   );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -1021,7 +1066,6 @@ export function generateApplicationSummaryPdf(
             note.text,
           ])
         : [["—", "—", "No application-level notes recorded."]],
-    headStyles: { fillColor: [190, 24, 93], textColor: 255 },
     styles: { fontSize: 8.5, cellPadding: 6, valign: "top" },
     columnStyles: {
       0: { cellWidth: 70 },
@@ -1047,8 +1091,6 @@ export function generateApplicationSummaryPdf(
       evidenceDataGapAnalysis: control.evidenceDataGapAnalysis,
       evidenceDataGapAnalysisStale:
         control.evidenceDataGapAnalysisStale,
-      qaScore: control.qaScore,
-      qaScoreRationale: control.qaScoreRationale,
       notes: control.notes,
       nextTasks: control.nextTasks,
       checklistChangeLog: control.checklistChangeLog,
@@ -1076,23 +1118,31 @@ export function generateControlSummaryPdf(
   control: ControlDetailInput
 ): void {
   const doc = new jsPDF({ unit: "pt", format: "letter" });
+  registerPdfFonts(doc);
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 40;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text("Control Summary", marginX, 50);
+  doc.setFillColor(...PDF.teal);
+  doc.rect(0, 0, pageWidth, 5, "F");
+  setPdfFont(doc, "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(...PDF.teal);
+  doc.text("CONTROL GOVERNOR · COMPLIANCE HUB", marginX, 30, { charSpace: 0.8 });
+  doc.setTextColor(...PDF.text);
+  setPdfFont(doc, "bold");
+  doc.setFontSize(PDF_SIZE.title - 2);
+  doc.text("Control Summary", marginX, 52);
 
-  doc.setFont("helvetica", "normal");
+  setPdfFont(doc, "normal");
   doc.setFontSize(10.5);
-  doc.setTextColor(90);
+  doc.setTextColor(...PDF.muted);
   doc.text(`Application: ${applicationName}`, marginX, 68);
   doc.text(
     `Generated ${formatGeneratedTimestamp()} — Developed by Manoj`,
     marginX,
     84
   );
-  doc.setTextColor(0);
+  doc.setTextColor(...PDF.text);
 
   const finalY = renderControlDetailSection(
     doc,
@@ -1118,82 +1168,59 @@ export function generateControlSummaryPdf(
 export function generateExecutiveProgressPdf(
   applications: Application[]
 ): void {
+  const { doc, fileName } =
+    buildExecutiveProgressPdf(applications);
+  doc.save(fileName);
+}
+
+// Builds the executive progress PDF without saving it, so the UI can
+// show a preview first and download on confirmation.
+export function buildExecutiveProgressPdf(
+  applications: Application[]
+): { doc: jsPDF; fileName: string } {
   const doc = new jsPDF({
     unit: "pt",
     format: "letter",
   });
+  registerPdfFonts(doc);
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 40;
 
-  const totalApplications = applications.length;
-
-  const totalControls = applications.reduce(
-    (total, application) =>
-      total + application.controls.length,
-    0
-  );
-
-  const completedControls = countControlsByStatus(
-    applications,
-    "Completed"
-  );
-
-  const onHoldControls = countControlsByStatus(
-    applications,
-    "On Hold"
-  );
-
-  const applicationsMissingContext =
-    applications.filter(
-      (application) =>
-        application.contextStatus !== "Complete"
-    ).length;
-
-  const allControls = applications.flatMap(
-    (application) => application.controls
-  );
-
-  const argosReadyControls = allControls.filter(
-    (control) => control.qaScore === "Argos Ready"
-  ).length;
-
-  const overallPercent =
-    totalControls === 0
-      ? 0
-      : Math.round(
-          (completedControls / totalControls) * 100
-        );
-
-  // Header banner
-  doc.setFillColor(30, 41, 59);
-  doc.rect(0, 0, pageWidth, 96, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(19);
-  doc.setTextColor(255, 255, 255);
+  // Same numbers and narrative as the New UI dashboard.
+  const metrics = computeExecutiveMetrics(applications);
+  const totalControls = metrics.controls;
+  // Header -- the app's look: teal top strip, dark title, muted meta.
+  doc.setFillColor(...PDF.teal);
+  doc.rect(0, 0, pageWidth, 5, "F");
+  setPdfFont(doc, "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(...PDF.teal);
+  doc.text("CONTROL GOVERNOR · COMPLIANCE HUB", marginX, 34, { charSpace: 0.8 });
+  doc.setFontSize(PDF_SIZE.title);
+  doc.setTextColor(...PDF.text);
+  doc.text("Executive Progress Report", marginX, 58);
+  setPdfFont(doc, "normal");
+  doc.setFontSize(PDF_SIZE.subtitle);
+  doc.setTextColor(...PDF.muted);
   doc.text(
-    "Executive Progress Report",
+    `CORE Compliance Program · ${metrics.controls} controls across ${metrics.applications} applications${metrics.frameworks.length ? ` · ${metrics.frameworks.join(", ")}` : ""}`,
     marginX,
-    42
-  );
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10.5);
-  doc.setTextColor(203, 213, 225);
-  doc.text(
-    "CORE Compliance Program — Control Governor",
-    marginX,
-    62
+    76
   );
   doc.text(
     `Generated ${formatGeneratedTimestamp()} — Developed by Manoj`,
     marginX,
-    78
+    90
   );
-  doc.setTextColor(0, 0, 0);
+  doc.setDrawColor(...PDF.border);
+  doc.setLineWidth(0.6);
+  doc.line(marginX, 102, pageWidth - marginX, 102);
+  doc.setTextColor(...PDF.text);
 
   // Colorful KPI stat cards
   const cardY = 116;
-  const cardH = 66;
+  const cardH = 58;
   const cardGap = 10;
   const cardW =
     (pageWidth - marginX * 2 - cardGap * 5) / 6;
@@ -1201,39 +1228,33 @@ export function generateExecutiveProgressPdf(
   const cards: [string, string, [number, number, number]][] = [
     [
       "Applications",
-      String(totalApplications),
-      [37, 99, 235],
+      String(metrics.applications),
+      PDF.teal,
     ],
     [
-      "Total Controls",
-      String(totalControls),
-      [8, 145, 178],
+      "Controls",
+      String(metrics.controls),
+      PDF.blue,
     ],
     [
-      "% Complete",
-      `${overallPercent}%`,
-      colorForPercent(overallPercent),
+      "Tasks Complete",
+      `${metrics.taskPct}%`,
+      PDF.green,
     ],
     [
-      "Argos Ready",
-      String(argosReadyControls),
-      argosReadyControls > 0
-        ? [5, 150, 105]
-        : [100, 116, 139],
+      "Controls Complete",
+      `${metrics.completedPct}%`,
+      PDF.green,
     ],
     [
-      "On Hold",
-      String(onHoldControls),
-      onHoldControls > 0
-        ? [220, 38, 38]
-        : [100, 116, 139],
+      "Evidence + Testing",
+      `${metrics.fullyUploaded}/${metrics.controls}`,
+      PDF.orange,
     ],
     [
-      "Missing Context",
-      String(applicationsMissingContext),
-      applicationsMissingContext > 0
-        ? [217, 119, 6]
-        : [100, 116, 139],
+      "Needs Attention",
+      String(metrics.attention.length),
+      PDF.red,
     ],
   ];
 
@@ -1252,6 +1273,40 @@ export function generateExecutiveProgressPdf(
 
   let y = cardY + cardH + 26;
 
+  // Executive summary -- the dashboard's computed narrative.
+  y = drawSectionBanner(
+    doc,
+    "Executive Summary",
+    marginX,
+    y,
+    pageWidth,
+    [15, 125, 140]
+  );
+  {
+    const TONE: Record<string, [number, number, number]> = {
+      progress: PDF.orange,
+      risk: PDF.red,
+      flow: PDF.teal,
+      coverage: PDF.orange,
+    };
+    const textWidth = pageWidth - marginX * 2 - 16;
+    setPdfFont(doc, "normal");
+    doc.setFontSize(9.5);
+    doc.setLineHeightFactor(1.35);
+    for (const line of executiveNarrative(metrics)) {
+      const text = line.parts.map((part) => part.text).join("");
+      const wrapped = doc.splitTextToSize(text, textWidth) as string[];
+      y = ensureRoom(doc, y, wrapped.length * 13 + 6);
+      doc.setFillColor(...TONE[line.tone]);
+      doc.circle(marginX + 4, y - 3, 2.4, "F");
+      doc.setTextColor(...PDF.body);
+      doc.text(wrapped, marginX + 14, y);
+      y += wrapped.length * 13 + 6;
+    }
+    doc.setTextColor(...PDF.text);
+    y += 12;
+  }
+
   // Control status breakdown, colored bar chart
   y = drawSectionBanner(
     doc,
@@ -1265,16 +1320,17 @@ export function generateExecutiveProgressPdf(
   const STATUS_COLOR: Record<
     string,
     [number, number, number]
-  > = {
-    Completed: [16, 185, 129],
-    "Ready for Review": [37, 99, 235],
-    "In Progress": [8, 145, 178],
-    "Checklist Review Pending": [217, 119, 6],
-    New: [100, 116, 139],
-    "On Hold": [220, 38, 38],
-  };
+  > = Object.fromEntries(
+    Object.entries(PDF_STATUS).map(([k, v]) => [k, v.fg])
+  );
+  // Share-of-total bars in each status's own colour (a large share is
+  // not "bad", so the completion traffic light would mislead here).
+  const statusBars = progressBarColumn(
+    2,
+    (_pct, row) => STATUS_COLOR[String(rawRowValue(row, 0))] ?? PDF.gray
+  );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -1303,18 +1359,124 @@ export function generateExecutiveProgressPdf(
           data.cell.styles.fontStyle = "bold";
         }
       }
-      progressBarColumn(2).didParseCell(data);
+      statusBars.didParseCell(data);
     },
     didDrawCell: (data) => {
-      progressBarColumn(2).didDrawCell(data);
-    },
-    headStyles: {
-      fillColor: [67, 56, 202],
-      textColor: 255,
+      statusBars.didDrawCell(data);
     },
     styles: { fontSize: 9, cellPadding: 6 },
   });
   y = getFinalY(doc) + 24;
+
+  // Coverage by control type -- the controls matrix's columns rolled
+  // up: how many applications have each control type, how many are
+  // done, and how far evidence and testing data have got.
+  y = ensureRoom(doc, y, 80);
+  y = drawSectionBanner(
+    doc,
+    "Coverage by Control Type",
+    marginX,
+    y,
+    pageWidth,
+    [15, 125, 140]
+  );
+  themedTable(doc, {
+    startY: y,
+    margin: { left: marginX, right: marginX },
+    theme: "grid",
+    head: [["Code", "Control", "Apps", "Done", "Evidence", "Testing Data", "Tasks", "Evidence + Testing"]],
+    body: metrics.byType.map((t) => [
+      t.isCode ? t.key : "—",
+      t.title,
+      String(t.apps),
+      `${t.completed}/${t.apps}`,
+      `${t.withEvidence}/${t.apps}`,
+      `${t.withTesting}/${t.apps}`,
+      `${t.tasks.done}/${t.tasks.total}`,
+      formatPercent(t.both, t.apps),
+    ]),
+    ...progressBarColumn(7),
+    styles: { fontSize: 8.5, cellPadding: 5 },
+    columnStyles: {
+      0: { cellWidth: 40, fontStyle: "bold" },
+      7: { cellWidth: 90 },
+    },
+  });
+  y = getFinalY(doc) + 24;
+
+  // Control matrix -- the /controls page as a table: one row per
+  // application, one column per control type; each cell is that
+  // application's control status plus what has been uploaded.
+  if (metrics.byType.length > 0 && applications.length > 0) {
+    const MATRIX_LABEL: Record<ControlStatus, string> = {
+      Completed: "Done",
+      "Ready for Review": "Ready",
+      "In Progress": "Prog.",
+      "Checklist Review Pending": "Review",
+      New: "New",
+      "On Hold": "Hold",
+    };
+    const MATRIX_STATUS = Object.fromEntries(
+      Object.entries(MATRIX_LABEL).map(([k, label]) => [k, { label, fill: PDF_STATUS[k].bg, text: PDF_STATUS[k].fg }])
+    ) as Record<ControlStatus, { label: string; fill: [number, number, number]; text: [number, number, number] }>;
+    const keys = metrics.byType.map((t) => t.key);
+    const cellFor = (control: ComplianceControl | undefined) => {
+      if (!control) return "—";
+      const u = controlUploadState(control);
+      const up = u.evidence.uploaded && u.testing.uploaded ? "E+T" : u.evidence.uploaded ? "E" : u.testing.uploaded ? "T" : "none";
+      return `${MATRIX_STATUS[control.controlStatus].label}\n${up}`;
+    };
+    const matrixRows = [...applications]
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      .map((application) => {
+        const byKey = new Map(application.controls.map((c) => [controlTypeKey(c), c]));
+        return { application, cells: keys.map((k) => byKey.get(k)) };
+      });
+
+    y = ensureRoom(doc, y, 90);
+    y = drawSectionBanner(
+      doc,
+      "Control Matrix",
+      marginX,
+      y,
+      pageWidth,
+      [30, 41, 59]
+    );
+    setPdfFont(doc, "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...PDF.muted);
+    doc.text(
+      "Status per application and control type. Second line: uploads on file (E = evidence, T = testing data). — = not applicable.",
+      marginX,
+      y
+    );
+    doc.setTextColor(...PDF.text);
+    y += 8;
+
+    themedTable(doc, {
+      startY: y,
+      margin: { left: marginX, right: marginX },
+      theme: "grid",
+      head: [["Application", ...keys]],
+      body: matrixRows.map((r) => [splitApplicationName(r.application.name).appName, ...r.cells.map(cellFor)]),
+      headStyles: { halign: "center" },
+      styles: { fontSize: 6.5, cellPadding: 3, halign: "center", valign: "middle" },
+      columnStyles: { 0: { cellWidth: 104, halign: "left", fontStyle: "bold", fontSize: 7.5 } },
+      didParseCell: (data) => {
+        if (data.section !== "body" || data.column.index === 0) return;
+        const control = matrixRows[data.row.index]?.cells[data.column.index - 1];
+        if (!control) {
+          data.cell.styles.textColor = PDF.gray;
+          return;
+        }
+        const tone = MATRIX_STATUS[control.controlStatus];
+        data.cell.styles.fillColor = tone.fill;
+        data.cell.styles.textColor = needsAttention(control) ? PDF.red : tone.text;
+        data.cell.styles.fontStyle = "bold";
+      },
+    });
+    y = getFinalY(doc) + 24;
+  }
 
   // Application progress, one colored bar per application
   y = ensureRoom(doc, y, 60);
@@ -1327,17 +1489,19 @@ export function generateExecutiveProgressPdf(
     [37, 99, 235]
   );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "striped",
     head: [
       [
         "Application",
-        "Hosting",
         "Context",
         "Controls",
         "Completed",
+        "Evidence",
+        "Testing Data",
+        "Attention",
         "% Complete",
       ],
     ],
@@ -1348,35 +1512,38 @@ export function generateExecutiveProgressPdf(
             control.controlStatus === "Completed"
         ).length;
 
+      const uploads = application.controls.map(
+        controlUploadState
+      );
+      const n = application.controls.length;
+
       return [
         application.name || application.id,
-        application.hosting || "Unknown",
         application.contextStatus,
-        String(application.controls.length),
+        String(n),
         String(applicationCompleted),
-        formatPercent(
-          applicationCompleted,
-          application.controls.length
+        `${uploads.filter((u) => u.evidence.uploaded).length}/${n}`,
+        `${uploads.filter((u) => u.testing.uploaded).length}/${n}`,
+        String(
+          application.controls.filter(needsAttention)
+            .length
         ),
+        formatPercent(applicationCompleted, n),
       ];
     }),
-    ...progressBarColumn(5),
-    headStyles: {
-      fillColor: [37, 99, 235],
-      textColor: 255,
-    },
+    ...progressBarColumn(7),
     styles: { fontSize: 9, cellPadding: 6 },
   });
   y = getFinalY(doc) + 24;
 
-  // Work progress summary — current status and QA score for every
+  // Work progress summary — upload state and progress for every
   // control in every application, drawn from the user's own notes.
   const workSummaryRows = applications.flatMap(
     (application) =>
       application.controls.map((control) => [
         application.name || application.id,
         control.name,
-        control.qaScore,
+        uploadsSummary(control),
         control.progressSummary ||
           "No work notes captured yet.",
       ])
@@ -1392,7 +1559,7 @@ export function generateExecutiveProgressPdf(
     [217, 119, 6]
   );
 
-  autoTable(doc, {
+  themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
@@ -1400,7 +1567,7 @@ export function generateExecutiveProgressPdf(
       [
         "Application",
         "Control",
-        "QA Score",
+        "Uploads",
         "Progress Summary",
       ],
     ],
@@ -1415,10 +1582,6 @@ export function generateExecutiveProgressPdf(
               "No controls have been added yet.",
             ],
           ],
-    headStyles: {
-      fillColor: [217, 119, 6],
-      textColor: 255,
-    },
     styles: {
       fontSize: 8.5,
       cellPadding: 6,
@@ -1427,7 +1590,7 @@ export function generateExecutiveProgressPdf(
     columnStyles: {
       0: { cellWidth: 75 },
       1: { cellWidth: 110 },
-      2: { cellWidth: 65 },
+      2: { cellWidth: 95 },
       3: { cellWidth: "auto" },
     },
   });
@@ -1468,16 +1631,12 @@ export function generateExecutiveProgressPdf(
       [124, 58, 237]
     );
 
-    autoTable(doc, {
+    themedTable(doc, {
       startY: y,
       margin: { left: marginX, right: marginX },
       theme: "grid",
       head: [["Application", "Control", "Open Access Ask"]],
       body: outstandingAccessRows,
-      headStyles: {
-        fillColor: [124, 58, 237],
-        textColor: 255,
-      },
       styles: {
         fontSize: 8.5,
         cellPadding: 6,
@@ -1521,7 +1680,7 @@ export function generateExecutiveProgressPdf(
       [220, 38, 38]
     );
 
-    autoTable(doc, {
+    themedTable(doc, {
       startY: y,
       margin: { left: marginX, right: marginX },
       theme: "grid",
@@ -1534,11 +1693,43 @@ export function generateExecutiveProgressPdf(
         ],
       ],
       body: attentionRows,
-      headStyles: {
-        fillColor: [220, 38, 38],
-        textColor: 255,
-      },
       styles: { fontSize: 9, cellPadding: 6 },
+    });
+    y = getFinalY(doc) + 24;
+  }
+
+  // Recent activity -- the latest notes and checklist changes, as on
+  // the dashboard.
+  const recent = metrics.recentActivity.slice(0, 15);
+  if (recent.length > 0) {
+    y = ensureRoom(doc, y, 60);
+    y = drawSectionBanner(
+      doc,
+      "Recent Activity",
+      marginX,
+      y,
+      pageWidth,
+      [59, 130, 196]
+    );
+    themedTable(doc, {
+      startY: y,
+      margin: { left: marginX, right: marginX },
+      theme: "striped",
+      head: [["Date", "Application", "Control", "Type", "Activity"]],
+      body: recent.map((a) => [
+        new Date(a.when).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
+        splitApplicationName(a.application.name).appName,
+        a.control.name,
+        a.kind,
+        a.text.length > 160 ? `${a.text.slice(0, 157)}…` : a.text,
+      ]),
+      styles: { fontSize: 8, cellPadding: 5, valign: "top" },
+      columnStyles: {
+        0: { cellWidth: 62 },
+        1: { cellWidth: 90 },
+        2: { cellWidth: 100 },
+        3: { cellWidth: 62 },
+      },
     });
     y = getFinalY(doc) + 24;
   }
@@ -1572,7 +1763,7 @@ export function generateExecutiveProgressPdf(
       [100, 116, 139]
     );
 
-    autoTable(doc, {
+    themedTable(doc, {
       startY: y,
       margin: { left: marginX, right: marginX },
       theme: "grid",
@@ -1585,10 +1776,6 @@ export function generateExecutiveProgressPdf(
         ],
       ],
       body: irrelevantRows,
-      headStyles: {
-        fillColor: [100, 116, 139],
-        textColor: 255,
-      },
       styles: {
         fontSize: 8.5,
         cellPadding: 6,
@@ -1605,7 +1792,8 @@ export function generateExecutiveProgressPdf(
 
   drawPageFooters(doc, marginX);
 
-  doc.save(
-    `control-governor-progress-${fileTimestampSlug()}.pdf`
-  );
+  return {
+    doc,
+    fileName: `control-governor-progress-${fileTimestampSlug()}.pdf`,
+  };
 }

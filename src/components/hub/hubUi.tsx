@@ -1,8 +1,8 @@
 "use client";
 
 // Shared building blocks for the "New UI" (Compliance Hub) look --
-// used by the real app's hub shell/tiles and by the
-// /new-theme/compliance-hub preview. Visual language follows the
+// used by the real app's hub shell, dashboard, application cards and
+// controls matrix. Visual language follows the
 // Untitled.png reference: cool gray canvas, teal accent, segmented
 // status bars, dense rows, outlined pill actions.
 
@@ -12,7 +12,6 @@ import { splitApplicationName } from "@/services/applicationName";
 import type {
   Application,
   ComplianceControl,
-  Note,
 } from "@/services/commandEngine";
 
 export const T = {
@@ -80,14 +79,16 @@ export function Icon({ d, size = 16, color = "currentColor" }: { d: string; size
 }
 
 // ---------- derived metrics ----------
-export const activeTasks = (c: ComplianceControl) => c.nextTasks.filter((t) => !t.irrelevant);
-
-export function taskStats(controls: ComplianceControl[]) {
-  const tasks = controls.flatMap(activeTasks);
-  const done = tasks.filter((t) => t.completed).length;
-  const evidenced = tasks.filter((t) => !t.completed && t.notes.length > 0).length;
-  return { total: tasks.length, done, evidenced, open: tasks.length - done - evidenced };
-}
+export {
+  activeTasks,
+  clientCode,
+  controlTypeKey,
+  evidenceNotes,
+  needsAttention,
+  sourceFiles,
+  taskStats,
+} from "@/services/controlMetrics";
+import { activeTasks, clientCode, evidenceNotes, needsAttention, taskStats } from "@/services/controlMetrics";
 
 export function taskParts(s: ReturnType<typeof taskStats>) {
   return [
@@ -96,28 +97,6 @@ export function taskParts(s: ReturnType<typeof taskStats>) {
     { n: s.done, color: T.green },
   ];
 }
-
-// Same definition as AppStateProvider's progress.needsAttention.
-export const needsAttention = (c: ComplianceControl) =>
-  c.controlStatus === "On Hold" || c.checklistStatus === "Needs Revision";
-
-export const evidenceNotes = (c: ComplianceControl) =>
-  [...c.notes, ...c.nextTasks.flatMap((t) => t.notes)].filter((n) => n.sourceKind !== "manual");
-
-export function sourceFiles(notes: Note[]) {
-  return [...new Set(notes.map((n) => n.sourceDocumentFilename).filter(Boolean))] as string[];
-}
-
-// "IS03 - password application" -> "IS03"
-export const clientCode = (c: ComplianceControl) => c.clientContext.split(/\s+-\s+/)[0]?.trim() || "—";
-
-export const QA_TONE: Record<string, { fg: string; bg: string }> = {
-  "Not Started": { fg: T.muted, bg: "#eef1f4" },
-  "Surface Level": { fg: T.orange, bg: T.orangeSoft },
-  Developing: { fg: T.blue, bg: "#e8f1fa" },
-  "Well Researched": { fg: T.teal, bg: T.tealSoft },
-  "Argos Ready": { fg: T.green, bg: T.greenSoft },
-};
 
 export const CONTEXT_TONE: Record<string, { fg: string; bg: string }> = {
   Missing: { fg: T.red, bg: T.redSoft },

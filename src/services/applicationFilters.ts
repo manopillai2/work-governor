@@ -4,8 +4,11 @@ import type {
   ComplianceControl,
   ControlStatus,
   Framework,
-  QaScoreLevel,
 } from "./commandEngine";
+import {
+  matchesUploadFilter,
+  type UploadFilterValue,
+} from "./uploads";
 import {
   CLIENT_REFERENCE_TABLE,
   type ClientReferenceEntry,
@@ -17,7 +20,7 @@ export type ApplicationFilterState = {
   frameworks: Framework[];
   statuses: ControlStatus[];
   checklistStatuses: ChecklistStatus[];
-  qaScores: QaScoreLevel[];
+  uploads: UploadFilterValue[];
   clientCodes: string[];
   // Composite quick filter (On Hold OR checklist Needs Revision) --
   // can't be expressed as a plain facet-array intersection since it
@@ -33,7 +36,7 @@ export const EMPTY_APPLICATION_FILTERS: ApplicationFilterState =
     frameworks: [],
     statuses: [],
     checklistStatuses: [],
-    qaScores: [],
+    uploads: [],
     clientCodes: [],
     needsAttentionOnly: false,
   };
@@ -47,7 +50,7 @@ export function hasActiveFilters(
     filters.frameworks.length > 0 ||
     filters.statuses.length > 0 ||
     filters.checklistStatuses.length > 0 ||
-    filters.qaScores.length > 0 ||
+    filters.uploads.length > 0 ||
     filters.clientCodes.length > 0 ||
     filters.needsAttentionOnly
   );
@@ -64,7 +67,7 @@ export type QuickFilterKey =
   | "inProgress"
   | "completed"
   | "needsAttention"
-  | "argosReady";
+  | "fullyUploaded";
 
 export function buildQuickFilterState(
   key: QuickFilterKey
@@ -96,10 +99,10 @@ export function buildQuickFilterState(
         ...EMPTY_APPLICATION_FILTERS,
         needsAttentionOnly: true,
       };
-    case "argosReady":
+    case "fullyUploaded":
       return {
         ...EMPTY_APPLICATION_FILTERS,
-        qaScores: ["Argos Ready"],
+        uploads: ["Both uploaded"],
       };
     case "controls":
     default:
@@ -241,9 +244,11 @@ function controlMatchesFacets(
       control.checklistStatus
     );
 
-  const qaScoreOk =
-    filters.qaScores.length === 0 ||
-    filters.qaScores.includes(control.qaScore);
+  const uploadsOk =
+    filters.uploads.length === 0 ||
+    filters.uploads.some((value) =>
+      matchesUploadFilter(control, value)
+    );
 
   const clientCodeOk =
     filters.clientCodes.length === 0 ||
@@ -260,7 +265,7 @@ function controlMatchesFacets(
     frameworkOk &&
     statusOk &&
     checklistStatusOk &&
-    qaScoreOk &&
+    uploadsOk &&
     clientCodeOk &&
     needsAttentionOk
   );
@@ -292,7 +297,7 @@ export function filterApplications(
     filters.frameworks.length > 0 ||
     filters.statuses.length > 0 ||
     filters.checklistStatuses.length > 0 ||
-    filters.qaScores.length > 0 ||
+    filters.uploads.length > 0 ||
     filters.clientCodes.length > 0 ||
     filters.needsAttentionOnly;
 

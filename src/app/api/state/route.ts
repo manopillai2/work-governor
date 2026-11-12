@@ -51,8 +51,6 @@ export async function GET() {
       nextTasks: row.nextTasks,
       checklistChangeLog: row.checklistChangeLog,
       progressSummary: row.progressSummary,
-      qaScore: row.qaScore as ComplianceControl["qaScore"],
-      qaScoreRationale: row.qaScoreRationale,
       lastRegeneratedSignature: row.lastRegeneratedSignature,
     };
 
@@ -157,8 +155,6 @@ export async function PUT(request: Request) {
             nextTasks: control.nextTasks,
             checklistChangeLog: control.checklistChangeLog,
             progressSummary: control.progressSummary,
-            qaScore: control.qaScore,
-            qaScoreRationale: control.qaScoreRationale,
             lastRegeneratedSignature:
               control.lastRegeneratedSignature,
           }))

@@ -9,7 +9,7 @@ export function noteSourceLabel(
 
   const kindLabel =
     note.sourceKind === "data"
-      ? "data"
+      ? "testing data"
       : "evidence";
 
   return `Coming from ${kindLabel}: ${note.sourceDocumentFilename}`;

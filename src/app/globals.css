@@ -309,7 +309,7 @@ html:root {
   .border-blue-500, .border-blue-700, .border-blue-700\/60, .border-blue-900 { border-color: #9fd0d8 !important; }
   .focus\:border-blue-500:focus { border-color: #0f7d8c !important; }
   .border-l-blue-500 { border-left-color: #0f7d8c !important; }
-  /* CollapsibleSection "accent" tint (QA Assessment, gap analysis) */
+  /* CollapsibleSection "accent" tint (gap analysis) */
   .bg-indigo-50, .bg-indigo-950\/30 { background-color: #f1f8f9 !important; }
   .border-indigo-200, .border-indigo-900 { border-color: #cfe6ea !important; }
 

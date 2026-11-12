@@ -29,7 +29,6 @@ import type {
   Note,
   NoteMode,
   ProposedClientReference,
-  QaScoreLevel,
   WorkflowStage,
 } from "@/services/commandEngine";
 
@@ -142,8 +141,6 @@ type ClaudeCommandInput = {
     }>;
 
     progressSummary?: string;
-    qaScore?: QaScoreLevel;
-    qaScoreRationale?: string;
 
     version?: number;
 
@@ -160,9 +157,9 @@ type ClaudeCommandInput = {
 };
 
 // Lets the assistant tell which notes came from an uploaded evidence
-// document, an uploaded real-data file, or were typed by hand -- and
+// document, an uploaded testing-data file, or were typed by hand -- and
 // which document specifically -- so it can reason about evidence vs.
-// data coverage (see EVIDENCE VS. DATA GAP ANALYSIS below). Without
+// data coverage (see EVIDENCE VS. TESTING DATA GAP ANALYSIS below). Without
 // this tag every note would look identical regardless of source.
 function noteSourceTag(note: Note): string {
   if (note.sourceKind === "evidence") {
@@ -170,7 +167,7 @@ function noteSourceTag(note: Note): string {
   }
 
   if (note.sourceKind === "data") {
-    return ` [Source: Data${note.sourceDocumentFilename ? ` - ${note.sourceDocumentFilename}` : ""}]`;
+    return ` [Source: Testing Data${note.sourceDocumentFilename ? ` - ${note.sourceDocumentFilename}` : ""}]`;
   }
 
   return "";
@@ -264,9 +261,6 @@ Checklist Status: ${control.checklistStatus}
 Homework Status: ${control.homeworkStatus}
 Workflow Stage: ${control.stage}
 
-QA Score: ${control.qaScore}
-QA Score Rationale: ${control.qaScoreRationale || "Not yet assessed"}
-
 Progress Summary:
 ${control.progressSummary || "No work notes captured yet."}
 
@@ -285,7 +279,7 @@ ${control.evidenceStrategy || "Not defined"}
 Argos Objective (Argos Rule Logic):
 ${control.argosObjective || "Not defined"}
 
-Evidence vs. Data Gap Analysis (control-level):
+Evidence vs. Testing Data Gap Analysis (control-level):
 ${control.evidenceDataGapAnalysis || "Not yet analyzed."}
 
 Work Notes (control-level):
@@ -363,7 +357,7 @@ ${
     : "- None"
 }
 
-Evidence vs. Data Gap Summary (application-level, high level):
+Evidence vs. Testing Data Gap Summary (application-level, high level):
 ${application.evidenceDataGapSummary || "Not yet analyzed."}
 
 Controls:
@@ -472,7 +466,7 @@ function formatEvidenceArchive(
         row.applicationId
       ) ?? row.applicationId;
 
-    const entry = `### ${row.filename} [${row.kind === "data" ? "Data" : "Evidence"}] (${applicationName}, uploaded ${row.uploadedAt.toISOString().slice(0, 10)}${row.truncated ? ", stored copy truncated at upload -- not necessarily the full document" : ""})\n${row.extractedText}`;
+    const entry = `### ${row.filename} [${row.kind === "data" ? "Testing Data" : "Evidence"}] (${applicationName}, uploaded ${row.uploadedAt.toISOString().slice(0, 10)}${row.truncated ? ", stored copy truncated at upload -- not necessarily the full document" : ""})\n${row.extractedText}`;
 
     if (entry.length > remainingBudget) {
       omittedCount += 1;
@@ -895,7 +889,7 @@ COMPANY NAME REDACTION
 The real company name in uploaded evidence/data is "Vistra" (any
 casing, any form -- "Vistra Energy", "Vistra's", etc.). Whenever you
 write, quote, or paraphrase anything that names it -- in a note, an
-Evidence vs. Data Gap Analysis, an argosObjective, a prep email, a
+Evidence vs. Testing Data Gap Analysis, an argosObjective, a prep email, a
 progress summary, or any other output -- always write "Client"
 instead, every time, with no exceptions. This is a straightforward
 substitution of the company name only; it never changes, drops, or
@@ -926,7 +920,7 @@ WHEN TO PRODUCE A FULL ARGOS RULE SPECIFICATION
 
 When the application/control notes, context, or the conversation
 actually contain real, specific technical detail about how evidence
-for this control is or will be collected -- real data source or table
+for this control is or will be collected -- testing data source or table
 names, a real collection method (an API, a query, a script, a
 platform export), real field names, real thresholds or policy values,
 or real classifications of what is in scope -- synthesize that
@@ -978,20 +972,20 @@ plainly what specific information (a data source, a collection
 method, a threshold) is still needed to build the full rule set --
 never fabricate it to look complete.
 
-EVIDENCE VS. DATA GAP ANALYSIS
+EVIDENCE VS. TESTING DATA GAP ANALYSIS
 
 Every note carries a source tag: [Source: Evidence - filename],
-[Source: Data - filename], or no tag at all for a manually typed note
+[Source: Testing Data - filename], or no tag at all for a manually typed note
 (see Work Notes / Notes against this item in CURRENT CONTROL GOVERNOR
 DATA, and the STORED EVIDENCE ARCHIVE entries, each labeled [Evidence]
-or [Data]). "Evidence" is something like a workpaper, policy document,
+or [Testing Data]). "Evidence" is something like a workpaper, policy document,
 or screenshot -- it shows what the application team says or displays.
-"Data" is a real export/config/pull from the application itself -- it
+"Testing Data" is a real export/config/pull from the application itself -- it
 independently proves what evidence only claims or shows.
 
-Whenever you process an evidence or real-data upload via
+Whenever you process an evidence or testing-data upload via
 PROCESS_MEETING_RESPONSE for a control, check whether that control now
-has notes tagged as BOTH Evidence and Data (combining what this upload
+has notes tagged as BOTH Evidence and Testing Data (combining what this upload
 just added with anything already on file for it, per the source tags
 above). If it does, include payload.controlUpdates[].evidenceDataGapAnalysis
 for that control, written as Markdown with exactly these four
@@ -1008,16 +1002,16 @@ bullet list (never a paragraph of prose):
 document and each data file/export by filename, with its date if
 known, and what each one claims or contains.
 
-## Evidence vs. Data Found
+## Evidence vs. Testing Data Found
 One bullet per distinct claim or fact, stated as
-"<claim/fact> -- [Confirmed by data | Contradicted by data | Not
-covered by data]", citing the specific data point that confirms,
+"<claim/fact> -- [Confirmed by testing data | Contradicted by testing
+data | Not covered by testing data]", citing the specific data point that confirms,
 contradicts, or is silent on it. This is where you flag any actual
-discrepancy between what the evidence says and what the data shows --
+discrepancy between what the evidence says and what the testing data shows --
 call a contradiction out explicitly and plainly, do not soften it.
 
-## What's Missing From Data
-1-4 bullets: specifically what real data (not evidence) still needs to
+## What's Missing From Testing Data
+1-4 bullets: specifically what testing data (not evidence) still needs to
 be collected so it can fully replace the evidence -- the objective is
 to reach a point where every claim currently backed only by a
 screenshot or document is instead backed by an authoritative data
@@ -1027,7 +1021,7 @@ populated in the current export -- need a data source that actually
 tracks password change timestamps" rather than "more password data is
 needed."
 
-If the control only has one kind (all Evidence, or all Data, or
+If the control only has one kind (all Evidence, or all Testing Data, or
 neither), leave evidenceDataGapAnalysis out of that controlUpdate
 entirely rather than writing a placeholder about it. Never invent a
 specific missing data source, field, or export name, and never invent
@@ -1035,11 +1029,11 @@ a discrepancy that isn't actually there -- every bullet must trace to
 something actually present (or actually absent) in the notes/archive,
 not a fabricated guess.
 
-TURNING "WHAT'S MISSING FROM DATA" INTO AN ACTUAL ASK
+TURNING "WHAT'S MISSING FROM TESTING DATA" INTO AN ACTUAL ASK
 
 When this is happening inside PROCESS_MEETING_RESPONSE (which can add
 checklist items -- see payload.controlUpdates[].addTasks below), every
-bullet you write under "What's Missing From Data" must also become a
+bullet you write under "What's Missing From Testing Data" must also become a
 concrete checklist task through addTasks, category "Access" (when the
 gap is about getting to a data source at all) or "Evidence Collection"
 (when access already exists but the specific field/export needs to be
@@ -1068,14 +1062,14 @@ thing in under 10 seconds. Markdown, headings plus bullets:
 
 ## Overview
 1 bullet, one clause, nothing more -- e.g. "Evidence is well covered
-across most controls; real data has only been collected for 2 of 7."
+across most controls; testing data has only been collected for 2 of 7."
 
-## Backed by Data
-One bullet per control that has real data behind its evidence, in
+## Backed by Testing Data
+One bullet per control that has testing data behind its evidence, in
 exactly this shape: "**<control name>** -- <2-4 word topic>." Nothing
 else on the line.
 
-## Evidence Only -- Data Still Needed
+## Evidence Only -- Testing Data Still Needed
 One bullet per control that currently relies on evidence alone, same
 shape: "**<control name>** -- <2-4 word topic>."
 
@@ -1089,7 +1083,7 @@ filenames, field names, table/object names, API names, dates, and
 anything spanning more than one sentence per bullet. All of that is
 exactly what evidenceDataGapAnalysis on the individual control is for
 -- if you're about to name a specific number or system, stop and
-generalize it instead. Omit "Backed by Data" or "Evidence Only"
+generalize it instead. Omit "Backed by Testing Data" or "Evidence Only"
 entirely if no control qualifies for it. Base this on the state of
 every control on the application, not just the one(s) this upload
 touched.
@@ -1100,7 +1094,7 @@ data analysis for control Y"), without a new upload. Use action
 UPDATE_EVIDENCE_DATA_GAP_ANALYSIS for that: payload.application, an
 optional payload.applicationEvidenceDataGapSummary, and
 payload.controlUpdates -- one entry per control in scope that
-currently has both Evidence and Data notes, each with control,
+currently has both Evidence and Testing Data notes, each with control,
 evidenceDataGapAnalysis, and an empty taskNotes: [] (taskNotes is
 required by the shared schema but must always be empty here -- this
 action never touches notes, tasks, or checklist status, only these
@@ -1843,46 +1837,13 @@ itself should change:
   permanently recorded in the checklist change log for later
   reference.
 
-Always refresh progressSummary and qaScore in this same command,
-based on all notes recorded for the control so far, not only the
-new note:
+Always refresh progressSummary in this same command, based on all
+notes recorded for the control so far, not only the new note:
 
 progressSummary is one to three plain-language sentences describing
 the current state of research and evidence-gathering for this
 control: what has been confirmed, what sources or owners have been
 identified, and what is still open.
-
-qaScore reflects how deep the research is and how strongly the
-user's notes have shaped and strengthened the checklist toward
-solid, Argos-ready evidence. It is not a pass/fail control status.
-Use this rubric:
-
-- Not Started: no meaningful notes have been recorded yet.
-- Surface Level: a few generic notes exist, but the checklist is
-  still essentially the default one; evidence sources are not yet
-  identified.
-- Developing: notes contain real specifics, such as named systems,
-  owners, or identities, and have prompted at least one checklist
-  refinement.
-- Well Researched: the checklist has been meaningfully reshaped by
-  findings; evidence sources, owners, and access methods are named
-  concretely rather than generically.
-- Argos Ready: real data -- not evidence, not a well-written plan --
-  backs every claim this control depends on. Concretely: if an
-  Evidence vs. Data Gap Analysis exists for this control, it has zero
-  remaining "What's Missing From Data" items (every claim is
-  Confirmed by data, none is still evidence-only or contradicted),
-  and the Argos objective is concrete and specific enough to
-  implement monitoring logic directly, including data source, fields,
-  frequency, and exception criteria. A control can have a strong
-  evidence strategy and a sharp Argos objective and still not be
-  Argos Ready if real data has not yet replaced the evidence for
-  every claim -- that control is Well Researched at most. Do not
-  round up: 100% here means data-complete, not plan-complete or
-  evidence-complete.
-
-Always include qaScoreRationale, one short sentence explaining why
-this level applies right now.
 
 As notes reveal real, specific information, also sharpen
 argosObjective for that control so it stays concrete rather than
@@ -1961,10 +1922,9 @@ information for. For each entry:
   markIrrelevantTaskTexts. Every addition and every irrelevant-marking
   needs a matching changeLogEntries entry with a specific reason.
   Only change the checklist when the reply gives real evidence for it.
-- Always refresh progressSummary, qaScore, and qaScoreRationale for
-  that control based on every note now on file for it, not only the
-  new ones, using the same rubric described under CHECKLIST ITEM
-  NOTES AND ADAPTIVE ANALYSIS.
+- Always refresh progressSummary for that control based on every
+  note now on file for it, not only the new ones, as described under
+  CHECKLIST ITEM NOTES AND ADAPTIVE ANALYSIS.
 
 If part of the reply does not clearly map to any existing checklist
 item or context field, put a grammatically corrected version of that
@@ -2986,21 +2946,6 @@ ${message}
                       type: "string",
                     },
 
-                    qaScore: {
-                      type: "string",
-
-                      enum: [
-                        "Not Started",
-                        "Surface Level",
-                        "Developing",
-                        "Well Researched",
-                        "Argos Ready",
-                      ],
-                    },
-
-                    qaScoreRationale: {
-                      type: "string",
-                    },
 
                     version: {
                       type: "number",
@@ -3226,21 +3171,6 @@ ${message}
                             type: "string",
                           },
 
-                          qaScore: {
-                            type: "string",
-
-                            enum: [
-                              "Not Started",
-                              "Surface Level",
-                              "Developing",
-                              "Well Researched",
-                              "Argos Ready",
-                            ],
-                          },
-
-                          qaScoreRationale: {
-                            type: "string",
-                          },
 
                           evidenceDataGapAnalysis:
                             {
@@ -3779,12 +3709,6 @@ ${message}
               rawCommand.payload
                 .progressSummary,
 
-            qaScore:
-              rawCommand.payload.qaScore,
-
-            qaScoreRationale:
-              rawCommand.payload
-                .qaScoreRationale,
           },
         };
 
@@ -4042,11 +3966,6 @@ ${message}
 
               progressSummary:
                 update.progressSummary,
-
-              qaScore: update.qaScore,
-
-              qaScoreRationale:
-                update.qaScoreRationale,
 
               evidenceDataGapAnalysis:
                 isNonEmptyString(

@@ -55,3 +55,6 @@ docker/**/.env.docker
 *.tsbuildinfo
 next-env.d.ts
 /pre-orphan-evidence-delete-backup-*/
+
+# local credentials file -- never commit
+/gittoken

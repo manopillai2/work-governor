@@ -16,6 +16,7 @@ import EvidenceUploadModal, {
   type EvidenceKind,
   type EvidenceUploadResult,
 } from "@/components/EvidenceUploadModal";
+import { controlUploadState } from "@/services/uploads";
 import EvidenceReuseModal from "@/components/EvidenceReuseModal";
 import LearningNotifications, {
   type PendingClientReferenceLearning,
@@ -52,6 +53,7 @@ import {
 } from "@/services/applicationFilters";
 import { formatMeetingPrepEmailText } from "@/services/meetingPrepEmail";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
+import { preloadPdfFonts } from "@/services/pdfTheme";
 import {
   createAndSaveBackup,
   downloadApplicationBackup,
@@ -319,8 +321,19 @@ function createTaskFromStoredValue(
 }
 
 function normalizeStoredControl(
-  control: ComplianceControl
+  stored: ComplianceControl
 ): ComplianceControl {
+  // Drop the retired QA fields older saved state may still carry.
+  const {
+    qaScore: _qaScore,
+    qaScoreRationale: _qaScoreRationale,
+    ...control
+  } = stored as ComplianceControl & {
+    qaScore?: unknown;
+    qaScoreRationale?: unknown;
+  };
+  void _qaScore;
+  void _qaScoreRationale;
   const normalizedTasks = Array.isArray(
     control.nextTasks
   )
@@ -506,7 +519,8 @@ type ProgressStats = {
   inProgress: number;
   completed: number;
   needsAttention: number;
-  argosReady: number;
+  // Controls with both evidence and testing data uploaded.
+  fullyUploaded: number;
 };
 
 type AppStateContextValue = {
@@ -772,6 +786,13 @@ export default function AppStateProvider({
     attachmentManagerApplicationId,
     setAttachmentManagerApplicationId,
   ] = useState<string | null>(null);
+
+  // Fetch the PDF font (Figtree) in the background so every export --
+  // including the synchronous control / application summaries -- can
+  // embed it. Exports fall back to Helvetica until it has loaded.
+  useEffect(() => {
+    void preloadPdfFonts();
+  }, []);
 
   useEffect(() => {
     async function loadPendingLearnings() {
@@ -1068,9 +1089,15 @@ export default function AppStateProvider({
             "Needs Revision"
       ).length,
 
-      argosReady: controls.filter(
-        (control) =>
-          control.qaScore === "Argos Ready"
+      fullyUploaded: controls.filter(
+        (control) => {
+          const uploads =
+            controlUploadState(control);
+          return (
+            uploads.evidence.uploaded &&
+            uploads.testing.uploaded
+          );
+        }
       ).length,
     };
   }, [applications]);
@@ -1659,7 +1686,7 @@ export default function AppStateProvider({
     const sourceDescription =
       result.kind === "evidence"
         ? "evidence document(s)"
-        : "real application data file(s)";
+        : "testing data file(s)";
 
     const budgetCaveat =
       truncatedFilenames.length > 0 ||
@@ -1907,7 +1934,7 @@ export default function AppStateProvider({
     const sourceDescription =
       kind === "evidence"
         ? "evidence document(s)"
-        : "real application data file(s)";
+        : "testing data file(s)";
 
     const budgetCaveat =
       truncatedFilenames.length > 0 ||

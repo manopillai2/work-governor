@@ -5,8 +5,8 @@ import type {
   ChecklistStatus,
   ControlStatus,
   Framework,
-  QaScoreLevel,
 } from "@/services/commandEngine";
+import { UPLOAD_FILTER_OPTIONS } from "@/services/uploads";
 import {
   getAvailableClientReferenceEntries,
   hasActiveFilters,
@@ -36,14 +36,6 @@ const CHECKLIST_STATUS_OPTIONS: ChecklistStatus[] =
     "Needs Revision",
     "Completed",
   ];
-
-const QA_SCORE_OPTIONS: QaScoreLevel[] = [
-  "Not Started",
-  "Surface Level",
-  "Developing",
-  "Well Researched",
-  "Argos Ready",
-];
 
 type FilterBarProps = {
   applications: Application[];
@@ -263,19 +255,19 @@ export default function FilterBar({
         />
 
         <FilterCategory
-          categoryLabel="QA Score"
-          options={QA_SCORE_OPTIONS.map(
-            (score) => ({
-              value: score,
-              label: score,
+          categoryLabel="Uploads"
+          options={UPLOAD_FILTER_OPTIONS.map(
+            (option) => ({
+              value: option,
+              label: option,
             })
           )}
-          selected={filters.qaScores}
+          selected={filters.uploads}
           onToggle={(value) =>
             onChange({
               ...filters,
-              qaScores: toggleValue(
-                filters.qaScores,
+              uploads: toggleValue(
+                filters.uploads,
                 value
               ),
             })

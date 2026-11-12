@@ -16,7 +16,7 @@ import ChatPanel from "@/components/ChatPanel";
 import { useAppState } from "@/components/AppStateProvider";
 import type { ProgressTileKey } from "@/components/ProgressSummary";
 import ThemeToggle from "@/components/ThemeToggle";
-import { generateExecutiveProgressPdf } from "@/services/exportReport";
+import { useExecutiveSummaryPreview } from "@/components/ExecutiveSummaryPreview";
 import {
   I,
   Icon,
@@ -69,10 +69,10 @@ function Kpis({ progress, onTile }: { progress: Progress; onTile: (k: ProgressTi
         </span>
       </div>
 
-      <button type="button" className={`${cell} border-l`} style={{ borderColor: T.divider }} onClick={() => onTile("argosReady")}>
-        <span className="flex items-center justify-between text-[12.5px]" style={{ color: T.text }}>Argos ready <Icon d={I.arrow} size={12} color={T.faint} /></span>
-        <span className={big} style={{ color: T.text }}>{progress.argosReady}</span>
-        <span className={sub} style={{ color: T.muted }}>{progress.inProgress} in progress · {progress.completed} completed</span>
+      <button type="button" className={`${cell} border-l`} style={{ borderColor: T.divider }} onClick={() => onTile("fullyUploaded")} title="Controls with both evidence and testing data uploaded">
+        <span className="flex items-center justify-between text-[12.5px]" style={{ color: T.text }}>Evidence + testing data <Icon d={I.arrow} size={12} color={T.faint} /></span>
+        <span className={big} style={{ color: T.text }}>{progress.fullyUploaded}</span>
+        <span className={sub} style={{ color: T.muted }}>of {progress.controls} controls · {progress.completed} completed</span>
       </button>
 
       <div className="flex flex-col justify-center border-l px-4 py-2" style={{ borderColor: T.divider }}>
@@ -179,6 +179,7 @@ export default function HubShell({ title, progress, children }: { title: string;
     applyQuickFilter,
   } = useAppState();
   const [chatOpen, setChatOpen] = useState(false);
+  const { openPreview, previewModal } = useExecutiveSummaryPreview();
   // Remembered per browser. HubShell only ever mounts on the client
   // (the UI mode comes from localStorage after hydration), so reading
   // it in the initializer can't cause a hydration mismatch.
@@ -207,7 +208,8 @@ export default function HubShell({ title, progress, children }: { title: string;
     if (pathname !== "/controls") router.push("/controls");
   }
 
-  const sectionLabel = "px-2 pb-1 text-[11.5px]";
+  // Same small uppercase label as the dashboard / PDF section headings.
+  const sectionLabel = "px-2 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em]";
 
   return (
     <HubChatContext.Provider value={{ openChat: () => setChatOpen(true) }}>
@@ -234,25 +236,26 @@ export default function HubShell({ title, progress, children }: { title: string;
           <nav className={`flex-1 overflow-y-auto border-t pt-3 ${collapsed ? "px-1.5" : "px-2"}`} style={{ borderColor: T.border }}>
             {[
               {
-                label: "Overview",
+                // The three working views, broad to detailed.
+                label: "Workspace",
                 items: (
                   <>
                     <NavItem collapsed={collapsed} href="/" icon={I.grid} label="Dashboard" active={pathname === "/"} />
                     <NavItem collapsed={collapsed} href="/applications" icon={I.apps} label="Applications" active={!!pathname?.startsWith("/applications")} badge={applications.length} />
+                    <NavItem collapsed={collapsed} href="/controls" icon={I.list} label="Controls" active={!!pathname?.startsWith("/controls")} badge={controlCount} />
                   </>
                 ),
               },
               {
-                label: "Evidence",
+                label: "Reports",
                 items: (
                   <>
-                    <NavItem collapsed={collapsed} href="/controls" icon={I.list} label="Controls" active={!!pathname?.startsWith("/controls")} badge={controlCount} />
-                    <NavItem collapsed={collapsed} onClick={() => generateExecutiveProgressPdf(applications)} icon={I.report} label="Executive summary" />
+                    <NavItem collapsed={collapsed} onClick={() => openPreview(applications)} icon={I.report} label="Executive summary" />
                   </>
                 ),
               },
               {
-                label: "Tools",
+                label: "Support",
                 items: (
                   <>
                     <NavItem collapsed={collapsed} href="/guide" icon={I.book} label="Guide" newTab />
@@ -265,7 +268,7 @@ export default function HubShell({ title, progress, children }: { title: string;
                 {collapsed ? (
                   index > 0 ? <div className="mx-2 mb-3 border-t" style={{ borderColor: T.border }} /> : null
                 ) : (
-                  <div className={sectionLabel} style={{ color: T.muted }}>{group.label}</div>
+                  <div className={sectionLabel} style={{ color: T.faint }}>{group.label}</div>
                 )}
                 {group.items}
               </div>
@@ -392,6 +395,7 @@ export default function HubShell({ title, progress, children }: { title: string;
           </button>
         )}
       </div>
+      {previewModal}
     </HubChatContext.Provider>
   );
 }

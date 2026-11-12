@@ -4,22 +4,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import ChatPanel from "@/components/ChatPanel";
 import ChevronMiniIcon from "@/components/ChevronMiniIcon";
-import ControlCard from "@/components/ControlCard";
+import ConnectedControlCard from "@/components/ConnectedControlCard";
 import FilterBar from "@/components/FilterBar";
 import AppFrame from "@/components/layout/AppFrame";
 import HubDashboard from "@/components/hub/HubDashboard";
+import ControlMatrix from "@/components/hub/ControlMatrix";
+import type {
+  Application,
+  ComplianceControl,
+} from "@/services/commandEngine";
 import { useTheme } from "@/components/ThemeProvider";
 import { usePathname, useSearchParams } from "next/navigation";
 import NavSwitchButton from "@/components/NavSwitchButton";
 import { useAppState } from "@/components/AppStateProvider";
-import { generateExecutiveProgressPdf } from "@/services/exportReport";
+import { useExecutiveSummaryPreview } from "@/components/ExecutiveSummaryPreview";
 
 import {
   buildControlDrillDownFilters,
   filterApplications,
   toFlatControlEntries,
 } from "@/services/applicationFilters";
-import { splitApplicationName } from "@/services/applicationName";
 
 export default function Home() {
   const {
@@ -36,17 +40,10 @@ export default function Home() {
     setFilters,
 
     handleSend,
-    toggleChecklistTask,
-    addTaskNote,
-    markTaskIrrelevantHandler,
-    restoreTaskHandler,
-    regenerateChecklistHandler,
-    approveChecklist,
-    requestChecklistRevision,
-    completeControl,
 
     openEvidenceModal,
   } = useAppState();
+  const { openPreview, previewModal } = useExecutiveSummaryPreview();
 
 
   // New UI: "/" is the application dashboard and the flat control
@@ -112,6 +109,31 @@ export default function Home() {
     [visibleApplications]
   );
 
+  // One full control card -- shared by the Classic list and the New
+  // UI's grouped list (where it opens in place of the compact row).
+  function renderControlCard(
+    application: Application,
+    control: ComplianceControl
+  ) {
+    return (
+      <ConnectedControlCard
+        key={control.id}
+        application={application}
+        control={control}
+        expanded={expandedControlId === control.id}
+        onToggleExpanded={() =>
+          setExpandedChoice({
+            forLink: linkedControlId,
+            id:
+              expandedControlId === control.id
+                ? null
+                : control.id,
+          })
+        }
+      />
+    );
+  }
+
   if (!isLoaded) {
     return (
       <AppFrame title={showDashboard ? "Dashboard" : "Controls"}>
@@ -147,7 +169,7 @@ export default function Home() {
 
   if (showDashboard) {
     return (
-      <AppFrame title="Dashboard" progress={progress}>
+      <AppFrame title="Dashboard">
         <HubDashboard />
       </AppFrame>
     );
@@ -176,11 +198,9 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() =>
-                    generateExecutiveProgressPdf(
-                      applications
-                    )
+                    openPreview(applications)
                   }
-                  title="Download a colorful executive PDF covering every application and control, with completion percentages"
+                  title="Preview and download a colorful executive PDF covering every application and control, with completion percentages"
                   className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500`}
                 >
                   Executive Summary
@@ -242,166 +262,33 @@ export default function Home() {
                       </div>
                     </div>
                   ) : (
+                    isHub ? (
+                      <ControlMatrix
+                        entries={visibleControls}
+                        openId={expandedControlId}
+                        onOpen={(id) =>
+                          setExpandedChoice({
+                            forLink: linkedControlId,
+                            id,
+                          })
+                        }
+                        onClose={() =>
+                          setExpandedChoice({
+                            forLink: linkedControlId,
+                            id: null,
+                          })
+                        }
+                      />
+                    ) : (
                     <div className="space-y-4 pb-4">
                       {visibleControls.map(
                         ({
                           application,
                           control,
-                        }) => (
-                          <ControlCard
-                            key={control.id}
-                            expanded={
-                              expandedControlId ===
-                              control.id
-                            }
-                            onToggleExpanded={() =>
-                              setExpandedChoice({
-                                forLink: linkedControlId,
-                                id:
-                                  expandedControlId ===
-                                  control.id
-                                    ? null
-                                    : control.id,
-                              })
-                            }
-                            applicationTag={splitApplicationName(
-                              application.name
-                            )}
-                            controlName={
-                              control.name
-                            }
-                            globalControlReference={
-                              control.globalControlReference
-                            }
-                            clientContext={
-                              control.clientContext
-                            }
-                            framework={
-                              control.framework
-                            }
-                            stage={
-                              control.stage
-                            }
-                            controlStatus={
-                              control.controlStatus
-                            }
-                            checklistStatus={
-                              control.checklistStatus
-                            }
-                            controlObjective={
-                              control.controlObjective
-                            }
-                            controlRisk={
-                              control.controlRisk
-                            }
-                            applicabilityRationale={
-                              control.applicabilityRationale
-                            }
-                            evidenceStrategy={
-                              control.evidenceStrategy
-                            }
-                            evidenceDataGapAnalysis={
-                              control.evidenceDataGapAnalysis
-                            }
-                            evidenceDataGapAnalysisStale={
-                              control.evidenceDataGapAnalysisStale
-                            }
-                            qaScore={
-                              control.qaScore
-                            }
-                            qaScoreRationale={
-                              control.qaScoreRationale
-                            }
-                            checklistChangeLog={
-                              control.checklistChangeLog
-                            }
-                            nextTasks={
-                              control.nextTasks
-                            }
-                            notes={control.notes}
-                            onToggleTask={(
-                              taskId
-                            ) =>
-                              toggleChecklistTask(
-                                application.id,
-                                control.id,
-                                taskId
-                              )
-                            }
-                            onAddTaskNote={(
-                              taskText,
-                              note
-                            ) =>
-                              addTaskNote(
-                                application.name,
-                                control.name,
-                                taskText,
-                                note
-                              )
-                            }
-                            onMarkTaskIrrelevant={(
-                              taskId,
-                              reason
-                            ) =>
-                              markTaskIrrelevantHandler(
-                                application.id,
-                                control.id,
-                                taskId,
-                                reason
-                              )
-                            }
-                            onRestoreTask={(
-                              taskId
-                            ) =>
-                              restoreTaskHandler(
-                                application.id,
-                                control.id,
-                                taskId
-                              )
-                            }
-                            onRegenerateChecklist={() =>
-                              regenerateChecklistHandler(
-                                application.id,
-                                control.name
-                              )
-                            }
-                            onPrepEmail={() =>
-                              handleSend(
-                                `Give me an email-ready version for ${application.id}, for control "${control.name}" only.`
-                              )
-                            }
-                            onShowQuestions={() =>
-                              handleSend(
-                                `Give me just the open questions from an email-ready version for ${application.id}, for control "${control.name}" only.`
-                              )
-                            }
-                            onRefreshEvidenceDataGapAnalysis={() =>
-                              handleSend(
-                                `Analyze the evidence vs real data gap for ${application.id}, for control "${control.name}" only.`
-                              )
-                            }
-                            onApproveChecklist={() =>
-                              approveChecklist(
-                                application.id,
-                                control.id
-                              )
-                            }
-                            onRequestChecklistRevision={() =>
-                              requestChecklistRevision(
-                                application.id,
-                                control.id
-                              )
-                            }
-                            onCompleteControl={() =>
-                              completeControl(
-                                application.id,
-                                control.id
-                              )
-                            }
-                          />
-                        )
+                        }) => renderControlCard(application, control)
                       )}
                     </div>
+                    )
                   )}
                 </>
               )}
@@ -462,6 +349,7 @@ export default function Home() {
           )}
         </div>
       </div>
+      {previewModal}
     </AppFrame>
   );
 }

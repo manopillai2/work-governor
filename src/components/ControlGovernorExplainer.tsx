@@ -48,9 +48,9 @@ const STAGES: Stage[] = [
     id: "evidence",
     number: "04",
     short: "Validate",
-    title: "Compare evidence with real application data",
+    title: "Compare evidence with testing data",
     subtitle:
-      "Evidence and underlying data remain separate, attributable, and testable against each other -- every gap found becomes a concrete access or evidence-collection ask, not just an observation.",
+      "Evidence and testing data remain separate, attributable, and testable against each other -- every gap found becomes a concrete access or evidence-collection ask, not just an observation.",
   },
   {
     id: "adaptive",
@@ -74,7 +74,7 @@ const STAGES: Stage[] = [
     short: "Monitor",
     title: "Turn research into Argos monitoring",
     subtitle:
-      "Once every gap closes with real data -- not just evidence -- it becomes repeatable logic, exception detection, ownership, and remediation.",
+      "Once every gap closes with testing data -- not just evidence -- it becomes repeatable logic, exception detection, ownership, and remediation.",
   },
 ];
 
@@ -411,7 +411,7 @@ function EvidenceStage() {
       <div className="cg-source-column">
         <div className="cg-source-heading">
           <Icon name="database" />
-          <span>Application Data</span>
+          <span>Testing Data</span>
         </div>
         <MiniCard title="API">Users · roles · permissions</MiniCard>
         <MiniCard title="Identity Source">Entra ID / SSO</MiniCard>
@@ -544,8 +544,8 @@ function ArgosStage() {
   return (
     <div className="cg-scene cg-scene--argos">
       <div className="cg-argos-gate">
-        <Pill tone="good">✓ Argos Ready</Pill>
-        <span>Real data closes every gap -- not just evidence, not just a plan</span>
+        <Pill tone="good">✓ Ready for Argos</Pill>
+        <span>Testing data closes every gap -- not just evidence, not just a plan</span>
       </div>
 
       <div className="cg-argos-pipeline">
@@ -681,7 +681,7 @@ export default function ControlGovernorExplainer({
             <h2>Follow a control from discovery to continuous monitoring.</h2>
             <p>
               Control Governor turns application context, control intent, evidence,
-              real data, and validated learnings into repeatable Argos monitoring.
+              testing data, and validated learnings into repeatable Argos monitoring.
             </p>
           </div>
 

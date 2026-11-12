@@ -14,7 +14,7 @@ export type ProgressTileKey =
   | "inProgress"
   | "completed"
   | "needsAttention"
-  | "argosReady";
+  | "fullyUploaded";
 
 type ProgressSummaryProps = {
   applications: number;
@@ -23,7 +23,7 @@ type ProgressSummaryProps = {
   inProgress: number;
   completed: number;
   needsAttention: number;
-  argosReady: number;
+  fullyUploaded: number;
   // When omitted, tiles render as plain (non-interactive) figures --
   // used before isLoaded (see page.tsx's placeholder progress) where
   // clicking anything would have nothing real to filter yet.
@@ -37,7 +37,7 @@ export default function ProgressSummary({
   inProgress,
   completed,
   needsAttention,
-  argosReady,
+  fullyUploaded,
   onTileClick,
 }: ProgressSummaryProps) {
   return (
@@ -105,13 +105,13 @@ export default function ProgressSummary({
       />
 
       <SummaryTile
-        tileKey="argosReady"
-        label="Argos Ready"
-        value={argosReady}
+        tileKey="fullyUploaded"
+        label="Evidence + Testing"
+        value={fullyUploaded}
         tone="success"
         onClick={
           onTileClick &&
-          (() => onTileClick("argosReady"))
+          (() => onTileClick("fullyUploaded"))
         }
       />
     </div>

@@ -41,13 +41,6 @@ export type ApplicationContextStatus =
   | "Partial"
   | "Complete";
 
-export type QaScoreLevel =
-  | "Not Started"
-  | "Surface Level"
-  | "Developing"
-  | "Well Researched"
-  | "Argos Ready";
-
 export type ChecklistChangeType =
   | "ADDED"
   | "MARKED_IRRELEVANT"
@@ -161,7 +154,7 @@ export interface ComplianceControl {
   // AI-written comparison of this control's evidence-sourced notes
   // against its data-sourced notes: where they overlap, where data is
   // missing to substantiate a piece of evidence (e.g. a screenshot
-  // with no underlying export to back it up), and what real data
+  // with no underlying export to back it up), and what testing data
   // would be worth collecting next to build Argos rule logic.
   // Refreshed whenever an evidence/data upload is processed for this
   // control, or on demand via UPDATE_EVIDENCE_DATA_GAP_ANALYSIS.
@@ -178,8 +171,6 @@ export interface ComplianceControl {
 
   checklistChangeLog: ChecklistChangeLogEntry[];
   progressSummary: string;
-  qaScore: QaScoreLevel;
-  qaScoreRationale: string;
 
   // Snapshot of the notes/context that produced the checklist
   // currently on file, captured whenever the checklist is generated
@@ -258,8 +249,6 @@ export interface MeetingResponseControlUpdate {
     reason: string;
   }>;
   progressSummary?: string;
-  qaScore?: QaScoreLevel;
-  qaScoreRationale?: string;
   // Only populated when this update came from an evidence/data upload
   // and the control now has notes from both sources -- see
   // ComplianceControl.evidenceDataGapAnalysis.
@@ -438,8 +427,6 @@ export type Command =
         }>;
 
         progressSummary?: string;
-        qaScore?: QaScoreLevel;
-        qaScoreRationale?: string;
       };
     }
   | {
@@ -1519,10 +1506,6 @@ export function refreshControlState(
       : [],
     progressSummary:
       control.progressSummary || "",
-    qaScore:
-      control.qaScore || "Not Started",
-    qaScoreRationale:
-      control.qaScoreRationale || "",
     lastRegeneratedSignature:
       control.lastRegeneratedSignature || "",
   };
@@ -1973,9 +1956,6 @@ function createControl(
     checklistChangeLog: [],
     progressSummary:
       "No work notes captured yet.",
-    qaScore: "Not Started",
-    qaScoreRationale:
-      "No work notes have been added against this control's checklist yet.",
 
     // Empty means "never regenerated" -- the no-op check in
     // REGENERATE_CONTROL_CHECKLIST / GENERATE_CONTEXTUAL_CHECKLISTS
@@ -2229,11 +2209,6 @@ function applyMeetingResponseControlUpdate(
       progressSummary:
         update.progressSummary ??
         control.progressSummary,
-      qaScore:
-        update.qaScore ?? control.qaScore,
-      qaScoreRationale:
-        update.qaScoreRationale ??
-        control.qaScoreRationale,
       evidenceDataGapAnalysis:
         update.evidenceDataGapAnalysis ??
         control.evidenceDataGapAnalysis,
@@ -3713,13 +3688,6 @@ function executeCommandInner(
           command.payload
             .progressSummary ??
           control.progressSummary,
-        qaScore:
-          command.payload.qaScore ??
-          control.qaScore,
-        qaScoreRationale:
-          command.payload
-            .qaScoreRationale ??
-          control.qaScoreRationale,
       });
 
     const updatedApplications =

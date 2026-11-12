@@ -29,7 +29,7 @@ type HeaderProps = {
     inProgress: number;
     completed: number;
     needsAttention: number;
-    argosReady: number;
+    fullyUploaded: number;
   };
 };
 

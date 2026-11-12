@@ -934,7 +934,7 @@ export default function ChatPanel({
                   aria-expanded={
                     showAttachChooser
                   }
-                  title="Attach evidence or real application data (Word, Excel, PowerPoint, PDF, CSV, JSON, or text)"
+                  title="Attach evidence or testing data (Word, Excel, PowerPoint, PDF, CSV, JSON, or text)"
                   className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <svg
@@ -992,7 +992,7 @@ export default function ChatPanel({
                         }}
                         className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800"
                       >
-                        Upload Real Data
+                        Upload Testing Data
                       </button>
                     </div>
                   </>

@@ -37,7 +37,7 @@ export const applications = pgTable("applications", {
 
   contextStatus: text("context_status").notNull().default("Missing"),
 
-  // Short, high-level AI-written summary of how evidence and real data
+  // Short, high-level AI-written summary of how evidence and testing data
   // differ across this application's controls -- see the matching field
   // on controls for the per-control detail.
   evidenceDataGapSummary: text("evidence_data_gap_summary").notNull().default(""),
@@ -112,6 +112,9 @@ export const controls = pgTable("controls", {
     .default([]),
 
   progressSummary: text("progress_summary").notNull().default(""),
+  // QA scoring was removed from the app; these two columns are no
+  // longer read or written and are kept only so existing databases
+  // need no destructive migration.
   qaScore: text("qa_score").notNull().default("Not Started"),
   qaScoreRationale: text("qa_score_rationale").notNull().default(""),
 
@@ -157,7 +160,8 @@ export const evidenceDocuments = pgTable("evidence_documents", {
   storagePath: text("storage_path").notNull(),
 
   // "evidence" (audit workpapers, policy docs, screenshots) vs
-  // "data" (real collected application data -- exports, configs).
+  // "data" (testing data collected from the application -- exports,
+  // configs; labelled "Testing data" in the UI).
   // Purely a labeling/UI distinction; both flow through the same
   // upload, parsing, and note-distribution pipeline.
   kind: text("kind").notNull().default("evidence"),

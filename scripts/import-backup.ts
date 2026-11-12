@@ -81,8 +81,6 @@ async function main() {
               nextTasks: control.nextTasks,
               checklistChangeLog: control.checklistChangeLog,
               progressSummary: control.progressSummary,
-              qaScore: control.qaScore,
-              qaScoreRationale: control.qaScoreRationale,
             })
           )
       );

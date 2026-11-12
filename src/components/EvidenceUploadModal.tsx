@@ -188,17 +188,21 @@ export default function EvidenceUploadModal({
         <h4 className="text-base font-semibold text-white">
           {kind === "evidence"
             ? "Attach Evidence"
-            : "Attach Real Data"}
+            : "Attach Testing Data"}
         </h4>
 
         <p className="mt-2 text-sm leading-6 text-slate-300">
           {kind === "evidence"
             ? "Upload a document from the application team (a workpaper, policy, or screenshot export). "
-            : "Upload real application data you've collected (a config export, user list, or system data pull). "}
+            : "Upload testing data you've collected (a config export, user list, or system data pull). "}
           Its content updates notes for the
           control(s) you choose below (and
           application context, if it addresses
-          it), tagged as {kind}, and is stored so
+          it), tagged as{" "}
+          {kind === "evidence"
+            ? "evidence"
+            : "testing data"}
+          , and is stored so
           you can ask questions about it later.
         </p>
 
