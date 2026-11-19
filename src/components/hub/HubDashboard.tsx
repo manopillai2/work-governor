@@ -154,7 +154,7 @@ function StatusPill({ text, tone }: { text: string; tone: { fg: string; bg: stri
 export default function HubDashboard() {
   const { applications, setFilters, applyQuickFilter } = useAppState();
   const { openPreview, previewModal } = useExecutiveSummaryPreview();
-  const { openChat } = useHubChat();
+  const { openOnboarding } = useHubChat();
   const router = useRouter();
 
   const m = useMemo(() => {
@@ -273,7 +273,7 @@ export default function HubDashboard() {
         <h1 className="text-[24px] font-semibold tracking-tight" style={{ color: T.text }}>Executive dashboard</h1>
         <div className="mt-8 rounded-[10px] border border-dashed p-10 text-center text-[14px]" style={{ borderColor: T.border, color: T.muted }}>
           No applications yet.{" "}
-          <button type="button" onClick={openChat} className="font-medium underline" style={{ color: T.teal }}>Open the assistant</button> to create one.
+          <button type="button" onClick={() => openOnboarding()} className="font-medium underline" style={{ color: T.teal }}>Start onboarding</button> to create one.
         </div>
       </div>
     );

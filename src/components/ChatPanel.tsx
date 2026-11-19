@@ -9,6 +9,9 @@ import {
   useState,
   type RefObject,
 } from "react";
+
+import { workingStatus } from "@/services/workingStatus";
+import { useAppState } from "@/components/AppStateProvider";
 import ReactMarkdown, {
   type Components,
 } from "react-markdown";
@@ -51,7 +54,9 @@ type ChatPanelProps = {
   onSend: (
     message: string
   ) => void | Promise<void>;
-  assistantMessage?: string;
+  // The request the assistant is working on (shown as a readable,
+  // advancing status -- see services/workingStatus -- never echoed).
+  pendingRequest?: string;
   onAttachEvidence?: (
     kind: "evidence" | "data"
   ) => void;
@@ -431,19 +436,79 @@ function MeetingPrepEmailAttachment({
   );
 }
 
+// "Control Governor is …" bubble while a request runs: a readable line
+// about the current step that advances over time, plus the elapsed
+// seconds. Owns its own timer so the message list doesn't re-render
+// every second. "Stop" cancels the request while the reply is still
+// being awaited (every chat surface renders this bubble, so they all
+// get it).
+function WorkingBubble({ request }: { request: string }) {
+  const [seconds, setSeconds] = useState(0);
+  const { canCancelAssistant, cancelAssistant } = useAppState();
+
+  useEffect(() => {
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      setSeconds(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="mr-8 rounded-xl rounded-bl-sm border border-slate-700/70 bg-slate-800 px-4 py-3 text-sm text-slate-300"
+    >
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-65">
+        Control Governor
+      </p>
+
+      <div className="flex items-center gap-2">
+        <span className="flex shrink-0 items-center gap-1" aria-hidden>
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-400 [animation-delay:-0.3s]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-400 [animation-delay:-0.15s]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-400" />
+        </span>
+
+        <p className="min-w-0 flex-1 leading-6">
+          {workingStatus(request, seconds)}
+        </p>
+
+        {seconds >= 2 ? (
+          <span className="shrink-0 text-[11px] tabular-nums opacity-60">
+            {seconds}s
+          </span>
+        ) : null}
+
+        {canCancelAssistant ? (
+          <button
+            type="button"
+            onClick={cancelAssistant}
+            title="Stop this request. Nothing is changed."
+            className="shrink-0 rounded-md border border-slate-500 px-2 py-0.5 text-[11px] font-semibold text-slate-200 transition hover:border-rose-400 hover:bg-rose-500/15 hover:text-rose-200"
+          >
+            Stop
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 // Split out and memoized so typing in the input below (which lives in
 // ChatPanel's own state) doesn't force every message to re-render and
 // re-parse its Markdown on every keystroke -- with a long chat
 // history that was the actual cause of visible input lag. This only
-// re-renders when messages/assistantMessage themselves change.
-const ChatMessageList = memo(
+// re-renders when messages/pendingRequest themselves change.
+export const ChatMessageList = memo(
   function ChatMessageList({
     messages,
-    assistantMessage,
+    pendingRequest,
     messagesEndRef,
   }: {
     messages: ChatMessage[];
-    assistantMessage?: string;
+    pendingRequest?: string;
     messagesEndRef: RefObject<HTMLDivElement | null>;
   }) {
     return (
@@ -520,20 +585,11 @@ const ChatMessageList = memo(
           })
         )}
 
-        {assistantMessage ? (
-          <div className="mr-8 rounded-xl rounded-bl-sm border border-slate-700/70 bg-slate-800 px-4 py-3 text-sm text-slate-300">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-65">
-              Control Governor
-            </p>
-
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
-
-              <p className="leading-6">
-                {assistantMessage}
-              </p>
-            </div>
-          </div>
+        {pendingRequest ? (
+          <WorkingBubble
+            key={pendingRequest}
+            request={pendingRequest}
+          />
         ) : null}
 
         <div ref={messagesEndRef} />
@@ -545,7 +601,7 @@ const ChatMessageList = memo(
 export default function ChatPanel({
   messages,
   onSend,
-  assistantMessage,
+  pendingRequest,
   onAttachEvidence,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -590,15 +646,18 @@ export default function ChatPanel({
   const tabHeldRef = useRef(false);
 
   const isProcessing = Boolean(
-    assistantMessage
+    pendingRequest
   );
+
+  const { canCancelAssistant, cancelAssistant } =
+    useAppState();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({
       behavior: "smooth",
       block: "end",
     });
-  }, [messages, assistantMessage]);
+  }, [messages, pendingRequest]);
 
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>
@@ -683,7 +742,7 @@ export default function ChatPanel({
 
       <ChatMessageList
         messages={messages}
-        assistantMessage={assistantMessage}
+        pendingRequest={pendingRequest}
         messagesEndRef={messagesEndRef}
       />
 
@@ -1000,17 +1059,28 @@ export default function ChatPanel({
               </>
             ) : null}
 
-            <button
-              type="submit"
-              disabled={
-                !input.trim() || isProcessing
-              }
-              className={`rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100`}
-            >
-              {isProcessing
-                ? "Working..."
-                : "Send"}
-            </button>
+            {isProcessing && canCancelAssistant ? (
+              <button
+                type="button"
+                onClick={cancelAssistant}
+                title="Stop this request. Nothing is changed."
+                className="rounded-lg bg-rose-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={
+                  !input.trim() || isProcessing
+                }
+                className={`rounded-lg bg-gradient-to-r from-blue-700 to-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100`}
+              >
+                {isProcessing
+                  ? "Working..."
+                  : "Send"}
+              </button>
+            )}
           </div>
         </div>
       </form>

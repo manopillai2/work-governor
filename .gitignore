@@ -58,3 +58,7 @@ next-env.d.ts
 
 # local credentials file -- never commit
 /gittoken
+
+# Data collection: run working folders (raw collector output) and the collectors Python environment
+/collector-runs/
+/.collectors-venv/

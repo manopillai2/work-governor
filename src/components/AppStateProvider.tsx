@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -54,6 +55,16 @@ import {
 import { formatMeetingPrepEmailText } from "@/services/meetingPrepEmail";
 import { generateExecutiveProgressPdf } from "@/services/exportReport";
 import { preloadPdfFonts } from "@/services/pdfTheme";
+import { AWAITING_CONFIRMATION } from "@/services/workingStatus";
+import ControlTypeConflictModal, {
+  type ConflictChoice,
+} from "@/components/ControlTypeConflictModal";
+import {
+  describeConflict,
+  findControlTypeConflicts,
+  keepOnePerControlType,
+  type ControlTypeConflict,
+} from "@/services/controlTypeConflicts";
 import {
   createAndSaveBackup,
   downloadApplicationBackup,
@@ -214,7 +225,7 @@ function createMessage(
 // Bulk pastes from a GRC tool or spreadsheet (raw control exports
 // spanning multiple applications) routinely run 10-35k+ characters,
 // and are often referenced across SEVERAL follow-up turns (e.g. "add
-// Salesforce - CXT next", then "...Dynegy", then "...TXU", all
+// Salesforce - CXT next", then "...EU", then "...US", all
 // pulling from the same original paste). Chopping a single oversized
 // message part-way through (the previous approach) reliably lost
 // whatever came after the cutoff -- observed in practice losing the
@@ -312,6 +323,9 @@ function createTaskFromStoredValue(
         ? task.notes
         : [],
       learningId: task.learningId,
+      ...(Array.isArray(task.references) && task.references.length
+        ? { references: task.references }
+        : {}),
       irrelevant: task.irrelevant === true,
       irrelevantReason: task.irrelevantReason,
     };
@@ -523,11 +537,47 @@ type ProgressStats = {
   fullyUploaded: number;
 };
 
+// Commands that only answer or export -- they never change
+// application data, so they don't need the caller's confirmation.
+const READ_ONLY_ACTIONS = new Set<Command["action"]>([
+  "RESPOND_ONLY",
+  "EXPORT_PROGRESS_REPORT",
+  "EXPORT_MEETING_PREP_EMAIL",
+  "LIST_BACKUPS",
+]);
+
+// Pre-selects the application / control in the upload dialog, and
+// tells the caller whether files were actually sent (true, called just
+// before the assistant turn starts) or the dialog was closed (false).
+export type EvidenceModalOptions = {
+  applicationId?: string;
+  controlName?: string;
+  onDone?: (submitted: boolean) => void;
+};
+
+export type HandleSendOptions = {
+  // Called with any data-changing command before it is applied (e.g.
+  // the onboarding pop-out's final confirmation). Resolve false and
+  // nothing is changed; the returned note is posted to the chat so the
+  // assistant can see what was proposed on the next turn.
+  confirmCommand?: (
+    command: Command
+  ) => Promise<{ proceed: boolean; note: string }>;
+  // Stored documents whose text is already inline in this turn's
+  // message (a fresh upload) -- the server leaves them out of the
+  // evidence archive so they aren't sent twice.
+  excludeEvidenceIds?: string[];
+};
+
 type AppStateContextValue = {
   applications: Application[];
   messages: ChatMessage[];
   isProcessing: boolean;
   processingSummary: string;
+  // True only while the assistant's reply is being awaited -- the part
+  // Stop can cancel (cancelAssistant).
+  canCancelAssistant: boolean;
+  cancelAssistant: () => void;
   isLoaded: boolean;
   loadError: string | null;
   retryLoad: () => void;
@@ -545,7 +595,8 @@ type AppStateContextValue = {
   handleSend: (
     userInput: string,
     noteSource?: NoteSource,
-    aiMessageOverride?: string
+    aiMessageOverride?: string,
+    options?: HandleSendOptions
   ) => Promise<void>;
 
   updateControl: (
@@ -665,7 +716,23 @@ type AppStateContextValue = {
   ) => Promise<void>;
 
   openEvidenceModal: (
-    kind: EvidenceKind
+    kind: EvidenceKind,
+    options?: EvidenceModalOptions
+  ) => void;
+
+  // Builds / rebuilds one control's readiness profile from its evidence
+  // and testing data (see services/readiness.ts) and saves it on the
+  // control.
+  buildReadinessProfile: (
+    applicationId: string,
+    controlId: string
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+
+  // New testing data arrived outside the upload dialog (a collector
+  // run): flag the affected readiness profiles for a rebuild.
+  markReadinessStale: (
+    applicationId: string,
+    controlName?: string
   ) => void;
 
   openAttachmentManager: (
@@ -714,6 +781,11 @@ export default function AppStateProvider({
   const [isProcessing, setIsProcessing] =
     useState(false);
 
+  const [canCancelAssistant, setCanCancelAssistant] =
+    useState(false);
+  const assistantAbortRef =
+    useRef<AbortController | null>(null);
+
   const [
     processingSummary,
     setProcessingSummary,
@@ -758,6 +830,16 @@ export default function AppStateProvider({
     resolve: (confirmed: boolean) => void;
   } | null>(null);
 
+  // A CREATE_APPLICATION / ADD_CONTROL that would put two controls of
+  // the same control type on one application, waiting for the user.
+  const [
+    pendingControlTypeConflict,
+    setPendingControlTypeConflict,
+  ] = useState<{
+    conflict: ControlTypeConflict;
+    resolve: (choice: ConflictChoice) => void;
+  } | null>(null);
+
   const [
     pendingEvidenceReuse,
     setPendingEvidenceReuse,
@@ -781,6 +863,11 @@ export default function AppStateProvider({
     evidenceModalKind,
     setEvidenceModalKind,
   ] = useState<EvidenceKind | null>(null);
+  const [
+    evidenceModalOptions,
+    setEvidenceModalOptions,
+  ] = useState<EvidenceModalOptions>({});
+  const evidenceSubmittedRef = useRef(false);
 
   const [
     attachmentManagerApplicationId,
@@ -1617,9 +1704,106 @@ export default function AppStateProvider({
     }
   }
 
+  async function buildReadinessProfile(
+    applicationId: string,
+    controlId: string
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const application = applications.find(
+      (a) => a.id === applicationId
+    );
+    if (!application) {
+      return { ok: false, error: "Application not found." };
+    }
+    try {
+      const response = await fetch("/api/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ application, controlId }),
+      });
+      const data = (await response.json()) as {
+        profile?: ComplianceControl["readinessProfile"];
+        error?: string;
+      };
+      if (!response.ok || !data.profile) {
+        return {
+          ok: false,
+          error: data.error || "Building the readiness profile failed.",
+        };
+      }
+      // Functional update: other changes made while this ran are kept.
+      setApplications((current) =>
+        current.map((a) =>
+          a.id !== applicationId
+            ? a
+            : {
+                ...a,
+                controls: a.controls.map((c) =>
+                  c.id === controlId
+                    ? {
+                        ...c,
+                        readinessProfile: data.profile,
+                        readinessStale: false,
+                      }
+                    : c
+                ),
+              }
+        )
+      );
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Building the readiness profile failed.",
+      };
+    }
+  }
+
+  function markReadinessStale(
+    applicationId: string,
+    controlName?: string
+  ) {
+    setApplications((current) =>
+      current.map((a) =>
+        a.id !== applicationId
+          ? a
+          : {
+              ...a,
+              controls: a.controls.map((c) =>
+                c.readinessProfile &&
+                (!controlName || c.name === controlName)
+                  ? { ...c, readinessStale: true }
+                  : c
+              ),
+            }
+      )
+    );
+  }
+
   function handleEvidenceUploaded(
     result: EvidenceUploadResult
   ) {
+    // New evidence/data -> any readiness profile it affects is now out
+    // of date until rebuilt.
+    setApplications((current) =>
+      current.map((a) =>
+        a.id !== result.applicationId
+          ? a
+          : {
+              ...a,
+              controls: a.controls.map((c) =>
+                c.readinessProfile &&
+                (result.scope === "all" ||
+                  c.name === result.controlName)
+                  ? { ...c, readinessStale: true }
+                  : c
+              ),
+            }
+      )
+    );
+
     // The modal closes itself (immediately if every file uploaded, or
     // after the user acknowledges a skipped-file summary) -- see
     // EvidenceUploadModal's onClose call in handleSubmit.
@@ -1738,7 +1922,19 @@ export default function AppStateProvider({
         kind: result.kind,
         documentsByFilename,
       },
-      aiMessage
+      aiMessage,
+      {
+        // Only the ones actually inline above; skipped ones can
+        // still reach the model through the archive.
+        excludeEvidenceIds: result.documents
+          .filter(
+            (document) =>
+              !skippedFilenames.includes(
+                document.filename
+              )
+          )
+          .map((document) => document.id),
+      }
     );
   }
 
@@ -2183,7 +2379,8 @@ export default function AppStateProvider({
   async function handleSend(
     userInput: string,
     noteSource?: NoteSource,
-    aiMessageOverride?: string
+    aiMessageOverride?: string,
+    options?: HandleSendOptions
   ) {
     const trimmedInput =
       String(userInput ?? "").trim();
@@ -2213,7 +2410,8 @@ export default function AppStateProvider({
       included: historyBeforeRequest,
       omittedCount: historyOmittedCount,
     } = selectHistoryWithinBudget(
-      messages.slice(-16)
+      // The assistant route only reads the last 12 (summarizeConversation).
+      messages.slice(-12)
     );
 
     setMessages(
@@ -2228,11 +2426,19 @@ export default function AppStateProvider({
       summarizeForProgress(trimmedInput)
     );
 
+    // Stop (cancelAssistant) aborts this request. Only the wait for the
+    // assistant's reply is cancellable: once a command is back, nothing
+    // has been applied yet and any confirmation step has its own Cancel.
+    const controller = new AbortController();
+    assistantAbortRef.current = controller;
+    setCanCancelAssistant(true);
+
     try {
       const response = await fetch(
         "/api/assistant",
         {
           method: "POST",
+          signal: controller.signal,
 
           headers: {
             "Content-Type":
@@ -2243,6 +2449,8 @@ export default function AppStateProvider({
             message: messageForAi,
             applications,
             historyOmittedCount,
+            excludeEvidenceIds:
+              options?.excludeEvidenceIds ?? [],
 
             history:
               historyBeforeRequest.map(
@@ -2257,6 +2465,14 @@ export default function AppStateProvider({
 
       const data =
         (await response.json()) as AssistantApiResponse;
+
+      // Past this point the request can no longer be stopped -- and a
+      // Stop pressed while the reply was being read must still win.
+      assistantAbortRef.current = null;
+      setCanCancelAssistant(false);
+      if (controller.signal.aborted) {
+        throw new DOMException("Stopped", "AbortError");
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -2289,6 +2505,41 @@ export default function AppStateProvider({
             ),
           ]
         );
+      }
+
+      // Caller-requested final confirmation (onboarding): nothing
+      // that changes data is applied until the user says proceed.
+      if (
+        options?.confirmCommand &&
+        !READ_ONLY_ACTIONS.has(
+          data.command.action
+        )
+      ) {
+        const summaryBefore =
+          summarizeForProgress(trimmedInput);
+        setProcessingSummary(
+          AWAITING_CONFIRMATION
+        );
+
+        const decision =
+          await options.confirmCommand(
+            data.command
+          );
+
+        setProcessingSummary(summaryBefore);
+
+        if (!decision.proceed) {
+          setMessages(
+            (currentMessages) => [
+              ...currentMessages,
+              createMessage(
+                "assistant",
+                decision.note
+              ),
+            ]
+          );
+          return;
+        }
       }
 
       if (
@@ -2604,6 +2855,72 @@ export default function AppStateProvider({
         return;
       }
 
+      // Same control type twice on one application? Ask first -- in
+      // the chat (so the conversation shows the question) and in a
+      // dialog -- before anything is created.
+      const typeConflict = findControlTypeConflicts(
+        data.command,
+        applications
+      );
+      let conflictNote = "";
+
+      if (typeConflict) {
+        setMessages((currentMessages) => [
+          ...currentMessages,
+          createMessage(
+            "assistant",
+            describeConflict(typeConflict)
+          ),
+        ]);
+
+        const summaryBefore = summarizeForProgress(trimmedInput);
+        setProcessingSummary(AWAITING_CONFIRMATION);
+
+        const choice = await new Promise<ConflictChoice>(
+          (resolve) => {
+            setPendingControlTypeConflict({
+              conflict: typeConflict,
+              resolve,
+            });
+          }
+        );
+
+        setPendingControlTypeConflict(null);
+        setProcessingSummary(summaryBefore);
+
+        if (choice === "cancel") {
+          setMessages((currentMessages) => [
+            ...currentMessages,
+            createMessage(
+              "assistant",
+              typeConflict.kind === "add"
+                ? "Okay -- I didn't add the control. Nothing was changed."
+                : `Okay -- I didn't create ${typeConflict.applicationName}. Nothing was changed; tell me which controls to keep and I'll create it.`
+            ),
+          ]);
+          return;
+        }
+
+        if (choice === "onePerType") {
+          data.command = keepOnePerControlType(
+            data.command
+          );
+          const skipped = typeConflict.groups.flatMap(
+            (g) => g.incoming.slice(1)
+          );
+          conflictNote = `\n\nSkipped as duplicate control types (confirmed by you): ${skipped
+            .map((n) => `"${n}"`)
+            .join(", ")}.`;
+        } else {
+          conflictNote =
+            typeConflict.kind === "add"
+              ? `\n\nAdded as an additional ${typeConflict.groups[0]?.code} control (confirmed by you).`
+              : `\n\nKept multiple controls of the same type (confirmed by you): ${typeConflict.groups
+                  .map((g) => `${g.code} ×${g.incoming.length}`)
+                  .join(", ")}.`;
+        }
+      }
+
       const result = executeCommand(
         data.command,
         applications,
@@ -2622,9 +2939,10 @@ export default function AppStateProvider({
 
           createMessage(
             "assistant",
-            result.message ||
+            (result.message ||
               data.assistantMessage ||
-              "The request was completed."
+              "The request was completed.") +
+              conflictNote
           ),
         ]
       );
@@ -2639,8 +2957,14 @@ export default function AppStateProvider({
         result.applications
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error
+      const stopped =
+        controller.signal.aborted ||
+        (error instanceof DOMException &&
+          error.name === "AbortError");
+
+      const errorMessage = stopped
+        ? "Stopped. No changes were made."
+        : error instanceof Error
           ? error.message
           : "The assistant request failed.";
 
@@ -2655,14 +2979,25 @@ export default function AppStateProvider({
         ]
       );
     } finally {
+      if (assistantAbortRef.current === controller) {
+        assistantAbortRef.current = null;
+      }
+      setCanCancelAssistant(false);
       setIsProcessing(false);
       setProcessingSummary("");
     }
   }
 
+  function cancelAssistant() {
+    assistantAbortRef.current?.abort();
+  }
+
   function openEvidenceModal(
-    kind: EvidenceKind
+    kind: EvidenceKind,
+    options: EvidenceModalOptions = {}
   ) {
+    evidenceSubmittedRef.current = false;
+    setEvidenceModalOptions(options);
     setEvidenceModalKind(kind);
   }
 
@@ -2689,6 +3024,8 @@ export default function AppStateProvider({
     messages,
     isProcessing,
     processingSummary,
+    canCancelAssistant,
+    cancelAssistant,
     isLoaded,
     loadError,
     retryLoad,
@@ -2721,6 +3058,8 @@ export default function AppStateProvider({
     handleClientReferenceLearningRespond,
 
     openEvidenceModal,
+    buildReadinessProfile,
+    markReadinessStale,
     openAttachmentManager,
   };
 
@@ -2736,6 +3075,17 @@ export default function AppStateProvider({
           handleClientReferenceLearningRespond
         }
       />
+
+      {pendingControlTypeConflict ? (
+        <ControlTypeConflictModal
+          conflict={
+            pendingControlTypeConflict.conflict
+          }
+          onChoose={
+            pendingControlTypeConflict.resolve
+          }
+        />
+      ) : null}
 
       {pendingAdminConfirmation ? (
         <AdminConfirmModal
@@ -2804,12 +3154,23 @@ export default function AppStateProvider({
         <EvidenceUploadModal
           kind={evidenceModalKind}
           applications={applications}
-          onClose={() =>
-            setEvidenceModalKind(null)
+          initialApplicationId={
+            evidenceModalOptions.applicationId
           }
-          onUploaded={
-            handleEvidenceUploaded
+          initialControlName={
+            evidenceModalOptions.controlName
           }
+          onClose={() => {
+            setEvidenceModalKind(null);
+            if (!evidenceSubmittedRef.current) {
+              evidenceModalOptions.onDone?.(false);
+            }
+          }}
+          onUploaded={(result) => {
+            evidenceSubmittedRef.current = true;
+            evidenceModalOptions.onDone?.(true);
+            handleEvidenceUploaded(result);
+          }}
         />
       ) : null}
 

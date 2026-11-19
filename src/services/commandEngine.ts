@@ -1,3 +1,4 @@
+import type { ReadinessProfile } from "./readiness";
 import { normalizeClientReferenceContext } from "./clientReference";
 
 export type HomeworkStatus = "Waiting" | "Completed";
@@ -101,6 +102,9 @@ export interface ChecklistTask {
   required: boolean;
   notes: Note[];
   learningId?: string;
+  // Official documentation pages (services/platformDocs.ts) this item
+  // is based on -- only URLs from a stored platform reference.
+  references?: string[];
   irrelevant?: boolean;
   irrelevantReason?: string;
 }
@@ -110,6 +114,7 @@ export interface ChecklistTaskInput {
   category?: TaskCategory;
   required?: boolean;
   learningId?: string;
+  references?: string[];
 }
 
 export interface ApplicationContextInput {
@@ -165,6 +170,14 @@ export interface ComplianceControl {
   // no longer guaranteed accurate until the user refreshes it. Set on
   // deletion, cleared whenever evidenceDataGapAnalysis is regenerated.
   evidenceDataGapAnalysisStale: boolean;
+
+  // Readiness profile (services/readiness.ts): evidence (claims) vs.
+  // real testing data (facts) per population, configuration layer and
+  // access, with gaps and next data requests. Optional so older stored
+  // controls and newly created ones need no changes.
+  readinessProfile?: ReadinessProfile | null;
+  // New uploads since the profile was built.
+  readinessStale?: boolean;
 
   notes: Note[];
   nextTasks: ChecklistTask[];
@@ -1104,6 +1117,7 @@ function createChecklistTask(
     required: input.required !== false,
     notes: [],
     learningId: input.learningId,
+    ...(input.references?.length ? { references: input.references } : {}),
   };
 }
 
@@ -1135,6 +1149,9 @@ function cleanChecklistTasks(
         required: task.required !== false,
         notes: normalizeNotes(task.notes),
         learningId: task.learningId,
+        ...(Array.isArray(task.references) && task.references.length
+          ? { references: task.references }
+          : {}),
         irrelevant: task.irrelevant === true,
         irrelevantReason: task.irrelevantReason,
       });
@@ -1209,6 +1226,9 @@ function mergeRegeneratedTasks(
           learningId:
             input.learningId ??
             existing.learningId,
+          ...(input.references?.length || existing.references?.length
+            ? { references: input.references?.length ? input.references : existing.references }
+            : {}),
         };
       }
 

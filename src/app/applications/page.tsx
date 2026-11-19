@@ -3,12 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 
-import ApplicationDetail from "@/components/ApplicationDetail";
+import ApplicationDetail, {
+  ApplicationDetailPopout,
+} from "@/components/ApplicationDetail";
 import ChatPanel from "@/components/ChatPanel";
 import ChevronMiniIcon from "@/components/ChevronMiniIcon";
 import ContextStatusBadge from "@/components/ContextStatusBadge";
 import AppFrame from "@/components/layout/AppFrame";
-import { I, Icon, T } from "@/components/hub/hubUi";
 import HubApplicationsGrid from "@/components/hub/HubApplicationsGrid";
 import NavSwitchButton from "@/components/NavSwitchButton";
 import { useAppState } from "@/components/AppStateProvider";
@@ -83,7 +84,6 @@ export default function ApplicationsPage() {
 
     handleSend,
     saveApplicationContext,
-    addApplicationNoteHandler,
     regenerateAllChecklistsHandler,
 
     openEvidenceModal,
@@ -194,21 +194,18 @@ export default function ApplicationsPage() {
                     </p>
                   </div>
                 </div>
-              ) : isHub && selectedApplication ? (
-                <div className="flex h-full min-h-0 flex-col">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedApplicationId(null)
-                    }
-                    className="mb-3 flex w-fit items-center gap-1.5 text-[13.5px] font-medium"
-                    style={{ color: T.teal }}
-                  >
-                    <Icon d={I.back} size={14} /> All
-                    applications
-                  </button>
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 xl:pr-2">
-                    <ApplicationDetail
+              ) : isHub ? (
+                // New UI: the tiles stay; "View details" opens the
+                // application as a large pop-out over them.
+                <>
+                  <HubApplicationsGrid
+                    onOpenApp={handleSelect}
+                  />
+                  {selectedApplication ? (
+                    <ApplicationDetailPopout
+                      onClose={() =>
+                        setSelectedApplicationId(null)
+                      }
                       application={
                         selectedApplication
                       }
@@ -222,12 +219,6 @@ export default function ApplicationsPage() {
                       onRegenerateAllChecklists={() =>
                         void regenerateAllChecklistsHandler(
                           selectedApplication
-                        )
-                      }
-                      onAddNote={(note) =>
-                        addApplicationNoteHandler(
-                          selectedApplication.id,
-                          note
                         )
                       }
                       onRefreshEvidenceDataGapAnalysis={() =>
@@ -251,12 +242,8 @@ export default function ApplicationsPage() {
                         )
                       }
                     />
-                  </div>
-                </div>
-              ) : isHub ? (
-                <HubApplicationsGrid
-                  onOpenApp={handleSelect}
-                />
+                  ) : null}
+                </>
               ) : selectedApplication ? (
                 <div className="flex h-full min-h-0 gap-3 xl:gap-4">
                   <div className="w-full max-w-xs shrink-0 space-y-3 overflow-y-auto overscroll-contain pr-1">
@@ -296,12 +283,6 @@ export default function ApplicationsPage() {
                       onRegenerateAllChecklists={() =>
                         void regenerateAllChecklistsHandler(
                           selectedApplication
-                        )
-                      }
-                      onAddNote={(note) =>
-                        addApplicationNoteHandler(
-                          selectedApplication.id,
-                          note
                         )
                       }
                       onRefreshEvidenceDataGapAnalysis={() =>
@@ -393,11 +374,7 @@ export default function ApplicationsPage() {
                   <ChatPanel
                     messages={messages}
                     onSend={handleSend}
-                    assistantMessage={
-                      isProcessing
-                        ? `Working on: "${processingSummary}"`
-                        : undefined
-                    }
+                    pendingRequest={isProcessing ? processingSummary : undefined}
                     onAttachEvidence={(kind) =>
                       openEvidenceModal(kind)
                     }

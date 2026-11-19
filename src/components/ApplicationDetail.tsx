@@ -1,100 +1,64 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import ReactMarkdown, {
-  type Components,
-} from "react-markdown";
+// One application's detail view ("View details" on an application
+// tile): a header with the application-wide actions, then tiles --
+// Application context first, then Work progress, Access requests, Rule
+// logic and Evidence vs testing data. Each tile shows a short preview;
+// clicking it opens the full content in a pop-out.
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import CollapsibleSection from "@/components/CollapsibleSection";
-import ContextStatusBadge from "@/components/ContextStatusBadge";
-import { noteSourceLabel } from "@/services/notes";
-import { NoteBullets } from "@/components/NoteBullets";
-import { splitApplicationName } from "@/services/applicationName";
-import { generateApplicationSummaryPdf } from "@/services/exportReport";
-import type {
-  Application,
-  ApplicationContextInput,
-  ComplianceControl,
-} from "@/services/commandEngine";
 import UploadIndicators from "@/components/UploadIndicators";
+import ReadinessView, { ReadinessBar, ReadinessLegend } from "@/components/hub/ReadinessView";
+import DataCollectionPopout from "@/components/hub/DataCollectionPopout";
+import PlatformDocsPanel from "@/components/hub/PlatformDocsPanel";
+import { readinessCounts, readinessPercent } from "@/services/readiness";
+import { ControlPopout, STATUS_TONE, isTopmostDialog } from "@/components/hub/controlViews";
+import { useHubChat } from "@/components/hub/HubShell";
+import { I, Icon, SegBar, T, clientCode, taskParts, taskStats } from "@/components/hub/hubUi";
+import { splitApplicationName } from "@/services/applicationName";
+import type { Application, ApplicationContextInput, ComplianceControl } from "@/services/commandEngine";
+import { generateApplicationSummaryPdf } from "@/services/exportReport";
+import { noteSourceLabel } from "@/services/notes";
+import { controlUploadState } from "@/services/uploads";
 
-const ARGOS_MARKDOWN_COMPONENTS: Components = {
-  h2: ({ children }) => (
-    <h5 className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-indigo-300 first:mt-0">
-      {children}
-    </h5>
-  ),
-  h3: ({ children }) => (
-    <h6 className="mb-1 mt-2 text-sm font-semibold text-slate-200">
-      {children}
-    </h6>
-  ),
-  p: ({ children }) => (
-    <p className="mb-2 leading-6 last:mb-0">
-      {children}
-    </p>
-  ),
-  ul: ({ children }) => (
-    <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">
-      {children}
-    </ul>
-  ),
-  ol: ({ children }) => (
-    <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">
-      {children}
-    </ol>
-  ),
-  li: ({ children }) => (
-    <li className="leading-6">{children}</li>
-  ),
-  strong: ({ children }) => (
-    <strong className="font-semibold text-slate-100">
-      {children}
-    </strong>
-  ),
-  code: ({ children }) => (
-    <code className="rounded bg-slate-950/70 px-1 py-0.5 font-mono text-xs">
-      {children}
-    </code>
-  ),
+const MARKDOWN: Components = {
+  h2: ({ children }) => <h5 className="mb-1 mt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#0f7d8c] first:mt-0">{children}</h5>,
+  h3: ({ children }) => <h6 className="mb-1 mt-2 text-[13px] font-semibold text-[#1b2430]">{children}</h6>,
+  p: ({ children }) => <p className="mb-2 leading-6 last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>,
+  li: ({ children }) => <li className="leading-6">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-[#1b2430]">{children}</strong>,
+  code: ({ children }) => <code className="rounded bg-[#eef1f4] px-1 py-0.5 font-mono text-[11.5px]">{children}</code>,
   table: ({ children }) => (
     <div className="mb-2 overflow-x-auto last:mb-0">
-      <table className="w-full border-collapse text-xs">
-        {children}
-      </table>
+      <table className="w-full border-collapse text-[12px]">{children}</table>
     </div>
   ),
-  thead: ({ children }) => (
-    <thead className="bg-slate-800">
-      {children}
-    </thead>
-  ),
-  th: ({ children }) => (
-    <th className="border border-slate-700 px-2 py-1 text-left font-semibold">
-      {children}
-    </th>
-  ),
-  td: ({ children }) => (
-    <td className="border border-slate-700 px-2 py-1 align-top">
-      {children}
-    </td>
-  ),
+  thead: ({ children }) => <thead className="bg-[#f7f9fb]">{children}</thead>,
+  th: ({ children }) => <th className="border border-[#dfe4ea] px-2 py-1 text-left font-semibold">{children}</th>,
+  td: ({ children }) => <td className="border border-[#dfe4ea] px-2 py-1 align-top">{children}</td>,
 };
 
 type ApplicationDetailProps = {
   application: Application;
   isProcessing: boolean;
-  onSaveContext: (
-    context: ApplicationContextInput
-  ) => void;
+  onSaveContext: (context: ApplicationContextInput) => void;
   onRegenerateAllChecklists: () => void;
-  onAddNote: (note: string) => void;
   onRefreshEvidenceDataGapAnalysis?: () => void;
   onPrepEmail: () => void;
   onShowQuestions: () => void;
   onOpenAttachments: () => void;
+  // New UI only: upload straight from the detail view.
+  onUploadEvidence?: () => void;
+  onUploadData?: () => void;
 };
+
+type TileKey = "context" | "progress" | "access" | "rules" | "evidence";
 
 function splitList(value: string): string[] {
   return value
@@ -103,813 +67,706 @@ function splitList(value: string): string[] {
     .filter(Boolean);
 }
 
+const CONTEXT_FIELDS: { key: keyof ApplicationContextInput; label: string }[] = [
+  { key: "applicationPurpose", label: "Purpose" },
+  { key: "businessProcess", label: "Business process" },
+  { key: "applicationOwner", label: "Application owner" },
+  { key: "technicalOwner", label: "Technical owner" },
+  { key: "applicationContacts", label: "Contacts" },
+  { key: "hostingDetails", label: "Hosting & architecture" },
+  { key: "integrations", label: "Integrations" },
+  { key: "identityTypes", label: "Identity types" },
+  { key: "dataClassification", label: "Data classification" },
+  { key: "financialRelevance", label: "Financial relevance" },
+];
+
+const filled = (v: unknown) => (Array.isArray(v) ? v.length > 0 : String(v ?? "").trim().length > 0);
+
+// Access-category checklist items across the application: what to ask
+// the application team for, and which control each one serves.
+function accessRequests(controls: ComplianceControl[]) {
+  return controls.flatMap((control) =>
+    control.nextTasks
+      .filter((task) => task.category === "Access" && !task.irrelevant)
+      .map((task) => ({ control, task }))
+  );
+}
+
+// ---------- shared pieces ----------
+function Pill({ children, fg, bg }: { children: ReactNode; fg: string; bg: string }) {
+  return <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-[1px] text-[10.5px] font-medium" style={{ color: fg, background: bg }}>{children}</span>;
+}
+
+function CodeTag({ control }: { control: ComplianceControl }) {
+  const code = clientCode(control);
+  return code === "—" ? null : (
+    <span className="shrink-0 rounded-md px-1.5 py-[1px] font-mono text-[10.5px] font-semibold" style={{ background: T.tealSoft, color: T.teal }}>{code}</span>
+  );
+}
+
+function Tile({ title, subtitle, onOpen, children, accent = T.teal, className = "" }: { title: string; subtitle: string; onOpen: () => void; children: ReactNode; accent?: string; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`group flex flex-col rounded-[10px] border border-l-[3px] bg-white p-4 text-left transition hover:shadow-[0_4px_16px_rgba(15,40,60,0.08)] ${className}`}
+      style={{ borderColor: T.border, borderLeftColor: accent }}
+    >
+      <span className="flex items-center justify-between gap-2">
+        <span className="text-[14px] font-semibold" style={{ color: T.text }}>{title}</span>
+        <span className="flex items-center gap-1 text-[11.5px] font-medium opacity-70 group-hover:opacity-100" style={{ color: T.teal }}>
+          Open <Icon d={I.arrow} size={12} />
+        </span>
+      </span>
+      <span className="mt-0.5 text-[11.5px]" style={{ color: T.muted }}>{subtitle}</span>
+      <span className="mt-3 block min-w-0 flex-1">{children}</span>
+    </button>
+  );
+}
+
+// Full-detail pop-out for a tile. Esc closes it only when it is the
+// top-most dialog (not while e.g. the regenerate warning is open on it).
+function DetailPopout({ title, subtitle, actions, onClose, children }: { title: string; subtitle?: string; actions?: ReactNode; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (!isTopmostDialog(ref.current)) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[44] flex items-start justify-center overflow-y-auto bg-[rgba(15,30,45,0.45)] p-4 sm:p-8" onClick={onClose}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} className="w-full max-w-4xl rounded-xl border bg-white shadow-2xl" style={{ borderColor: T.border }}>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4" style={{ borderColor: T.divider }}>
+          <div className="min-w-0">
+            <h4 className="text-[17px] font-semibold" style={{ color: T.text }}>{title}</h4>
+            {subtitle ? <p className="mt-0.5 text-[12.5px]" style={{ color: T.muted }}>{subtitle}</p> : null}
+          </div>
+          <div className="flex items-center gap-2">
+            {actions}
+            <button type="button" onClick={onClose} aria-label="Close" title="Close (Esc)" className="rounded-md p-1.5 hover:bg-[#eef1f4]" style={{ color: T.muted }}>
+              <Icon d={I.close} size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="max-h-[calc(100vh-180px)] overflow-y-auto px-5 py-4 text-[13px]" style={{ color: T.body }}>{children}</div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+const headerButton = "rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition";
+
+// ---------- main ----------
 export default function ApplicationDetail({
   application,
   isProcessing,
   onSaveContext,
   onRegenerateAllChecklists,
-  onAddNote,
   onRefreshEvidenceDataGapAnalysis,
   onPrepEmail,
   onShowQuestions,
   onOpenAttachments,
+  onUploadEvidence,
+  onUploadData,
 }: ApplicationDetailProps) {
-  const {
-    hosting,
-    contextStatus,
-    applicationPurpose,
-    businessProcess,
-    applicationOwner,
-    technicalOwner,
-    applicationContacts,
-    integrations,
-    identityTypes,
-    hostingDetails,
-    dataClassification,
-    financialRelevance,
-    controls,
-    evidenceDataGapSummary = "",
-    evidenceDataGapSummaryStale = false,
-    notes,
-  } = application;
+  const { controls, contextStatus, hosting, evidenceDataGapSummary = "", evidenceDataGapSummaryStale = false } = application;
+  const { appName, context } = splitApplicationName(application.name);
+  const [openTile, setOpenTile] = useState<TileKey | null>(null);
+  const [openControlId, setOpenControlId] = useState<string | null>(null);
+  // Work progress: which control's readiness profile is expanded.
+  const [readinessOpenId, setReadinessOpenId] = useState<string | null>(null);
+  const [dataCollectionOpen, setDataCollectionOpen] = useState(false);
 
-  const { appName, context } =
-    splitApplicationName(application.name);
+  const s = taskStats(controls);
+  const done = controls.filter((c) => c.controlStatus === "Completed").length;
+  const uploads = controls.map(controlUploadState);
+  const withEvidence = uploads.filter((u) => u.evidence.uploaded).length;
+  const withTesting = uploads.filter((u) => u.testing.uploaded).length;
+  const requests = accessRequests(controls);
+  const openRequests = requests.filter((r) => !r.task.completed);
+  const rulesDefined = controls.filter((c) => c.argosObjective.trim()).length;
+  const contextFilled = CONTEXT_FIELDS.filter((f) => filled(application[f.key as keyof Application])).length;
+  const missingFields = CONTEXT_FIELDS.filter((f) => !filled(application[f.key as keyof Application])).map((f) => f.label);
+  const ctxTone = contextStatus === "Complete" ? { fg: T.green, bg: T.greenSoft } : contextStatus === "Partial" ? { fg: T.orange, bg: T.orangeSoft } : { fg: T.red, bg: T.redSoft };
 
-  const [draftNote, setDraftNote] = useState("");
-
-  const [
-    showRegenerateWarning,
-    setShowRegenerateWarning,
-  ] = useState(false);
-
-  function handleSubmitNote() {
-    const trimmedNote = draftNote.trim();
-
-    if (!trimmedNote) {
-      return;
-    }
-
-    onAddNote(trimmedNote);
-    setDraftNote("");
-  }
-
-  const [purpose, setPurpose] = useState(
-    applicationPurpose
-  );
-
-  const [process, setProcess] = useState(
-    businessProcess
-  );
-
-  const [owner, setOwner] = useState(
-    applicationOwner
-  );
-
-  const [technical, setTechnical] = useState(
-    technicalOwner
-  );
-
-  const [contacts, setContacts] = useState(
-    applicationContacts.join("\n")
-  );
-
-  const [integrationText, setIntegrationText] =
-    useState(integrations.join("\n"));
-
-  const [identityText, setIdentityText] =
-    useState(identityTypes.join("\n"));
-
-  const [hostingContext, setHostingContext] =
-    useState(hostingDetails);
-
-  const [classification, setClassification] =
-    useState(dataClassification);
-
-  const [financialContext, setFinancialContext] =
-    useState(financialRelevance);
-
-  useEffect(() => {
-    setPurpose(applicationPurpose);
-    setProcess(businessProcess);
-    setOwner(applicationOwner);
-    setTechnical(technicalOwner);
-    setContacts(applicationContacts.join("\n"));
-    setIntegrationText(integrations.join("\n"));
-    setIdentityText(identityTypes.join("\n"));
-    setHostingContext(hostingDetails);
-    setClassification(dataClassification);
-    setFinancialContext(financialRelevance);
-  }, [
-    applicationPurpose,
-    businessProcess,
-    applicationOwner,
-    technicalOwner,
-    applicationContacts,
-    integrations,
-    identityTypes,
-    hostingDetails,
-    dataClassification,
-    financialRelevance,
-  ]);
-
-  function handleSaveContext() {
-    onSaveContext({
-      applicationPurpose: purpose,
-      businessProcess: process,
-      applicationOwner: owner,
-      technicalOwner: technical,
-      applicationContacts:
-        splitList(contacts),
-      integrations:
-        splitList(integrationText),
-      identityTypes:
-        splitList(identityText),
-      hostingDetails: hostingContext,
-      dataClassification: classification,
-      financialRelevance:
-        financialContext,
-    });
-  }
+  const openControl = controls.find((c) => c.id === openControlId);
+  const close = () => setOpenTile(null);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-sm">
-      <div className="flex w-full flex-wrap items-start justify-between gap-4 p-4">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4 rounded-[10px] border bg-white p-4" style={{ borderColor: T.border }}>
         <div className="min-w-0 flex-1">
-          <h3 className="text-xl font-bold tracking-tight text-white">
+          <h3 className="text-[20px] font-semibold tracking-tight" style={{ color: T.text }}>
             {appName}
-            {context ? (
-              <span className="ml-2 text-base font-normal text-slate-400">
-                ({context})
-              </span>
-            ) : null}
+            {context ? <span className="ml-2 text-[15px] font-normal" style={{ color: T.muted }}>({context})</span> : null}
           </h3>
-
-          <div className="mt-2 flex flex-wrap gap-2">
-            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300">
-              Hosting: {hosting}
-            </span>
-
-            <span className="rounded-full bg-blue-950 px-3 py-1 text-xs font-medium text-blue-300">
-              {controls.length} control
-              {controls.length === 1 ? "" : "s"}
-            </span>
-
-            <ContextStatusBadge
-              status={contextStatus}
-            />
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Pill fg={T.body} bg="#eef1f4">Hosting: {hosting}</Pill>
+            <Pill fg={T.teal} bg={T.tealSoft}>{controls.length} control{controls.length === 1 ? "" : "s"}</Pill>
+            <Pill fg={ctxTone.fg} bg={ctxTone.bg}>Context {contextStatus.toLowerCase()}</Pill>
           </div>
-
-          {contextStatus !== "Complete" ? (
-            <p className="mt-3 text-sm text-amber-300">
-              Application context is{" "}
-              {contextStatus.toLowerCase()}.
-              Current control checklists may be
-              preliminary.
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-emerald-300">
-              Application context is available for
-              contextual control analysis.
-            </p>
-          )}
         </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={onPrepEmail}
-            title="Draft an email-ready summary and open questions covering every control on this application"
-            className="rounded-lg border border-blue-700 bg-blue-950/60 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-blue-900"
-          >
-            Prep Email (All)
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button type="button" onClick={onPrepEmail} title="Draft an email-ready summary and open questions covering every control on this application" className={headerButton} style={{ borderColor: T.teal, color: T.teal, background: T.tealSoft }}>
+            Prep email (all)
           </button>
-
-          <button
-            type="button"
-            onClick={onShowQuestions}
-            title="Show just the open questions across every control on this application"
-            className="rounded-lg border border-blue-700 bg-blue-950/60 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-blue-900"
-          >
-            Show Questions (All)
+          <button type="button" onClick={onShowQuestions} title="Show just the open questions across every control on this application" className={headerButton} style={{ borderColor: T.teal, color: T.teal, background: T.tealSoft }}>
+            Open questions (all)
           </button>
-
           <button
             type="button"
-            onClick={onOpenAttachments}
-            title="See every evidence and testing data file attached to this application, and delete any that are no longer valid"
-            className="rounded-lg border border-slate-600 bg-slate-800/60 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+            onClick={() => setDataCollectionOpen(true)}
+            title="Connect to the application with a service account and pull the testing data directly"
+            className={headerButton}
+            style={{ borderColor: T.teal, color: "#fff", background: T.teal }}
           >
+            Data collection
+          </button>
+          {onUploadEvidence ? (
+            <button type="button" onClick={onUploadEvidence} disabled={isProcessing} title="Upload evidence documents for this application (Word, Excel, PowerPoint, PDF, CSV, JSON, text)" className={`${headerButton} disabled:cursor-not-allowed disabled:opacity-50`} style={{ borderColor: T.border, color: T.body, background: "#fff" }}>
+              Upload evidence
+            </button>
+          ) : null}
+          {onUploadData ? (
+            <button type="button" onClick={onUploadData} disabled={isProcessing} title="Upload testing data files for this application" className={`${headerButton} disabled:cursor-not-allowed disabled:opacity-50`} style={{ borderColor: T.border, color: T.body, background: "#fff" }}>
+              Upload testing data
+            </button>
+          ) : null}
+          <button type="button" onClick={onOpenAttachments} title="See every evidence and testing data file attached to this application, and delete any that are no longer valid" className={headerButton} style={{ borderColor: T.border, color: T.body, background: "#fff" }}>
             Attachments
           </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              generateApplicationSummaryPdf(application)
-            }
-            title="Download a complete PDF summary of this application — context, evidence-vs-data, work progress, Argos logic, notes, and every control's full detail"
-            className="rounded-lg border border-emerald-700 bg-emerald-950/60 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-900"
-          >
-            Export Summary
+          <button type="button" onClick={() => generateApplicationSummaryPdf(application)} title="Download a complete PDF summary of this application" className={headerButton} style={{ borderColor: T.border, color: T.body, background: "#fff" }}>
+            Export summary
           </button>
         </div>
       </div>
 
-      <div className="space-y-3 border-t border-slate-700 p-4">
-        <CollapsibleSection
-          title="Work Progress Summary"
-          description="Your read on each control, built from the notes you add against its checklist items — refreshed automatically every time you add one."
-          theme="dark"
-          tint="accent"
-        >
-          <WorkProgressSummaryPanel
-            controls={controls}
-          />
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title="Access & Credentials Profile"
-          description="Every 'Access' checklist item across this application's controls, in one place -- the permission sets you've asked for or already hold, so you can line them up against one shared credential for real-time Argos pulls."
-          theme="dark"
-          tint="accent"
-        >
-          <AccessCredentialsPanel
-            controls={controls}
-          />
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title="Argos Rule Logic"
-          description="Every control's monitoring objective for this application, in one place."
-          theme="dark"
-          tint="accent"
-        >
-          <ArgosRuleLogicPanel
-            controls={controls}
-          />
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title="Evidence vs. Testing Data Summary"
-          description="A high-level read across every control -- see each control's own section for the detail behind it."
-          theme="dark"
-          tint="accent"
-          badge={
-            evidenceDataGapSummaryStale &&
-            evidenceDataGapSummary ? (
-              <span className="rounded-full bg-amber-950 px-2.5 py-1 text-[11px] font-semibold text-amber-300">
-                Possibly outdated
-              </span>
-            ) : undefined
-          }
-          headerActions={
-            onRefreshEvidenceDataGapAnalysis ? (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRefreshEvidenceDataGapAnalysis();
-                }}
-                className="rounded-md border border-indigo-700 bg-indigo-950/60 px-2 py-1 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-900"
-              >
-                Refresh
-              </button>
-            ) : undefined
-          }
-        >
-          {evidenceDataGapSummaryStale &&
-          evidenceDataGapSummary ? (
-            <p className="mb-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs font-medium text-amber-300">
-              A source document behind this
-              summary was deleted -- it may no
-              longer be accurate. Click Refresh
-              to update it.
-            </p>
-          ) : null}
-
-          {evidenceDataGapSummary ? (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={
-                ARGOS_MARKDOWN_COMPONENTS
-              }
-            >
-              {evidenceDataGapSummary}
-            </ReactMarkdown>
-          ) : (
-            <p className="text-sm leading-6 text-slate-300">
-              Not yet analyzed. This fills in
-              once at least one control has
-              both evidence and testing data
-              attached, or click Refresh to
-              check now.
-            </p>
-          )}
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title="Application Context"
-          description="This context is combined with the assignment objective and each SOX control objective."
-          theme="dark"
-          badge={
-            <ContextStatusBadge
-              status={contextStatus}
-            />
-          }
-        >
-          <div className="space-y-4">
-              <ContextField
-                label="Application purpose"
-                value={purpose}
-                onChange={setPurpose}
-                placeholder="Explain what the application does and why the business uses it."
-                multiline
-              />
-
-              <ContextField
-                label="Business process"
-                value={process}
-                onChange={setProcess}
-                placeholder="Examples: vendor onboarding, payment processing, journal entries, financial reporting."
-                multiline
-              />
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <ContextField
-                  label="Application owner"
-                  value={owner}
-                  onChange={setOwner}
-                  placeholder="Business or control owner"
-                />
-
-                <ContextField
-                  label="Technical owner"
-                  value={technical}
-                  onChange={setTechnical}
-                  placeholder="Technical or support owner"
-                />
-              </div>
-
-              <ContextField
-                label="Application contacts"
-                value={contacts}
-                onChange={setContacts}
-                placeholder="Enter one name, team, or email per line."
-                multiline
-              />
-
-              <ContextField
-                label="Hosting and architecture details"
-                value={hostingContext}
-                onChange={setHostingContext}
-                placeholder="Describe servers, cloud platforms, databases, operating systems, tenants, and environments."
-                multiline
-              />
-
-              <ContextField
-                label="Integrations"
-                value={integrationText}
-                onChange={setIntegrationText}
-                placeholder="Enter APIs, file transfers, banks, identity providers, upstream systems, and downstream systems."
-                multiline
-              />
-
-              <ContextField
-                label="Known identity types"
-                value={identityText}
-                onChange={setIdentityText}
-                placeholder="Users, groups, administrators, shared accounts, service accounts, service principals, API keys, certificates, tokens, vendors."
-                multiline
-              />
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <ContextField
-                  label="Data classification"
-                  value={classification}
-                  onChange={setClassification}
-                  placeholder="Examples: financial, confidential, restricted"
-                />
-
-                <ContextField
-                  label="Financial relevance"
-                  value={financialContext}
-                  onChange={setFinancialContext}
-                  placeholder="Explain how the application may affect financial reporting."
-                  multiline
-                />
-              </div>
-
-              <div className="rounded-lg border border-blue-900 bg-blue-950/40 p-3 text-sm leading-6 text-blue-200">
-                Saving context does not automatically
-                approve or complete a checklist. After
-                saving, use the chat command:
-                <span className="mt-2 block font-semibold">
-                  Regenerate contextual checklists for{" "}
-                  {application.id}.
-                </span>
-              </div>
-
-              <div className="flex flex-wrap justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowRegenerateWarning(true)
-                  }
-                  disabled={
-                    controls.length === 0 ||
-                    isProcessing
-                  }
-                  className="rounded-lg border border-amber-600 px-5 py-2 text-sm font-semibold text-amber-300 hover:bg-amber-950 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Regenerate Checklist for All
-                  Controls
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSaveContext}
-                  className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-500"
-                >
-                  Save Application Context
-                </button>
-              </div>
-          </div>
-        </CollapsibleSection>
-
-        {showRegenerateWarning ? (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-            onClick={() =>
-              setShowRegenerateWarning(false)
-            }
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              onClick={(event) =>
-                event.stopPropagation()
-              }
-              className="w-full max-w-md rounded-xl border border-amber-700/60 bg-slate-900 p-6 shadow-2xl"
-            >
-              <h4 className="text-base font-semibold text-amber-300">
-                Regenerate checklists for every
-                control?
-              </h4>
-
-              <p className="mt-3 text-sm leading-6 text-slate-300">
-                You&rsquo;re about to regenerate the
-                checklist for every control on this
-                application. Your existing notes are
-                not deleted by this.
-              </p>
-
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                But every control&rsquo;s checklist gets
-                reset to &ldquo;Review Pending,&rdquo;
-                even controls this context change had
-                nothing to do with -- and if the
-                regenerated wording doesn&rsquo;t match
-                an existing item closely, the old item
-                (with your note) stays alongside a new,
-                differently-worded one instead of
-                cleanly replacing it.
-              </p>
-
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                If you believe this context change only
-                affects one control, regenerate that
-                control&rsquo;s checklist individually
-                instead. Regenerating everything is
-                safest right after an application is
-                first added, while every checklist is
-                still new.
-              </p>
-
-              <div className="mt-5 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowRegenerateWarning(false)
-                  }
-                  className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowRegenerateWarning(false);
-                    onRegenerateAllChecklists();
-                  }}
-                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500"
-                >
-                  Regenerate All Checklists
-                </button>
-              </div>
-            </div>
-          </div>
+      {/* Application context -- first, full width */}
+      <Tile
+        title="Application context"
+        subtitle="What the application is, who owns it and how it runs -- used for every control's checklist."
+        onOpen={() => setOpenTile("context")}
+        accent={ctxTone.fg}
+        className="w-full"
+      >
+        <span className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[12.5px]">
+          <span>
+            <b style={{ color: T.text }}>{contextFilled}</b>
+            <span style={{ color: T.muted }}> of {CONTEXT_FIELDS.length} fields captured</span>
+          </span>
+          <span className="min-w-0 truncate" style={{ color: T.body }}>
+            <span style={{ color: T.muted }}>Owner: </span>
+            {application.applicationOwner || <span style={{ color: T.faint }}>not captured</span>}
+          </span>
+          <span className="min-w-0 truncate" style={{ color: T.body }}>
+            <span style={{ color: T.muted }}>Purpose: </span>
+            {application.applicationPurpose || <span style={{ color: T.faint }}>not captured</span>}
+          </span>
+        </span>
+        {missingFields.length ? (
+          <span className="mt-2 block truncate text-[11.5px]" style={{ color: T.orange }}>Missing: {missingFields.join(", ")}</span>
         ) : null}
+      </Tile>
 
-        <CollapsibleSection
-          title="Application Notes"
-          description="General observations about this application. Considered every time a checklist is generated or regenerated for any of its controls."
-          theme="dark"
-          badge={
-            notes.length > 0 ? (
-              <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-300">
-                {notes.length}
-              </span>
-            ) : undefined
-          }
+      <PlatformDocsPanel application={application} />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Tile title="Work progress" subtitle="Each control's readiness: evidence checked against the real data." onOpen={() => setOpenTile("progress")} accent={T.green}>
+          <span className="flex items-center gap-2">
+            <SegBar parts={taskParts(s)} height={5} />
+            <span className="shrink-0 text-[11.5px]" style={{ color: T.muted }}>{s.done}/{s.total} tasks</span>
+          </span>
+          <span className="mt-2 block text-[12.5px]" style={{ color: T.body }}>
+            <b style={{ color: T.text }}>{done}</b> of {controls.length} controls completed
+          </span>
+        </Tile>
+
+        <Tile title="Access requests" subtitle="Access the application team needs to grant, per control." onOpen={() => setOpenTile("access")} accent={T.orange}>
+          <span className="block text-[12.5px]" style={{ color: T.body }}>
+            <b style={{ color: openRequests.length ? T.orange : T.text }}>{openRequests.length}</b> open · {requests.length - openRequests.length} granted
+          </span>
+          <span className="mt-1 block text-[11.5px]" style={{ color: T.muted }}>
+            across {new Set(requests.map((r) => r.control.id)).size} of {controls.length} controls
+          </span>
+        </Tile>
+
+        <Tile title="Rule logic" subtitle="How each control will be monitored automatically." onOpen={() => setOpenTile("rules")} accent={T.blue}>
+          <span className="block text-[12.5px]" style={{ color: T.body }}>
+            <b style={{ color: T.text }}>{rulesDefined}</b> of {controls.length} controls defined
+          </span>
+          <span className="mt-2 block h-[5px] overflow-hidden rounded-full" style={{ background: T.divider }}>
+            <span className="block h-full rounded-full" style={{ width: `${controls.length ? (rulesDefined / controls.length) * 100 : 0}%`, background: T.blue }} />
+          </span>
+        </Tile>
+
+        <Tile title="Evidence vs testing data" subtitle="Whether testing data backs up the evidence." onOpen={() => setOpenTile("evidence")} accent={T.teal}>
+          <span className="block text-[12.5px]" style={{ color: T.body }}>
+            Evidence <b style={{ color: T.text }}>{withEvidence}/{controls.length}</b> · Testing data <b style={{ color: T.text }}>{withTesting}/{controls.length}</b>
+          </span>
+          <span className="mt-1 block text-[11.5px]" style={{ color: evidenceDataGapSummaryStale ? T.orange : T.muted }}>
+            {evidenceDataGapSummary ? (evidenceDataGapSummaryStale ? "Summary possibly outdated" : "Summary available") : "Not analyzed yet"}
+          </span>
+        </Tile>
+      </div>
+
+      {/* ---------- pop-outs ---------- */}
+      {openTile === "context" ? (
+        <ContextPopout application={application} isProcessing={isProcessing} onSave={onSaveContext} onRegenerateAll={onRegenerateAllChecklists} onClose={close} />
+      ) : null}
+
+      {openTile === "progress" ? (
+        <DetailPopout
+          title="Work progress"
+          subtitle={`${done} of ${controls.length} controls completed · ${s.done}/${s.total} checklist tasks done · ${controls.filter((c) => c.readinessProfile).length} of ${controls.length} readiness profiles built`}
+          onClose={close}
         >
-          <div className="space-y-3">
-            {notes.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No application-level notes yet.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {notes.map((note) => (
-                  <div
-                    key={note.id}
-                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2"
-                  >
-                    <p className="mb-1 font-mono text-[10px] text-slate-600">
-                      {note.id}
-                    </p>
-
-                    <div
-                      className={
-                        note.documentDeleted
-                          ? "text-sm leading-6 text-slate-500 line-through decoration-slate-600"
-                          : "text-sm leading-6 text-slate-300"
-                      }
-                    >
-                      <NoteBullets text={note.text} />
+          {controls.length > 0 ? (
+            <div className="mb-3">
+              <ReadinessLegend />
+            </div>
+          ) : null}
+          {controls.length === 0 ? (
+            <p style={{ color: T.faint }}>No controls have been added yet.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {controls.map((c) => {
+                const cs = taskStats([c]);
+                const tone = STATUS_TONE[c.controlStatus];
+                return (
+                  <div key={c.id} className="rounded-lg border p-3" style={{ borderColor: T.border }}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CodeTag control={c} />
+                      <span className="min-w-0 flex-1 truncate font-semibold" style={{ color: T.text }}>{c.name}</span>
+                      <Pill fg={tone.fg} bg={tone.bg}>{c.controlStatus}</Pill>
+                      <UploadIndicators control={c} mini />
                     </div>
-
-                    {note.documentDeleted ? (
-                      <p className="mt-1 text-xs font-medium text-rose-400">
-                        Source document deleted
-                      </p>
-                    ) : noteSourceLabel(note) ? (
-                      <p className="mt-1 text-xs text-slate-500">
-                        {noteSourceLabel(note)}
-                      </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <SegBar parts={taskParts(cs)} height={4} />
+                      <span className="shrink-0 text-[11px]" style={{ color: T.muted }}>{cs.done}/{cs.total} tasks · {c.stage}</span>
+                    </div>
+                    {c.readinessProfile ? (
+                      <div className="mt-2.5 flex items-center gap-2">
+                        <span className="w-[74px] shrink-0 text-[11px] font-semibold" style={{ color: T.text }}>
+                          Readiness {readinessPercent(c.readinessProfile)}%
+                        </span>
+                        <ReadinessBar profile={c.readinessProfile} height={5} />
+                        <span className="shrink-0 text-[11px]" style={{ color: T.muted }}>
+                          {readinessCounts(c.readinessProfile).verified}/{readinessCounts(c.readinessProfile).applicable} verified by data
+                          {c.readinessStale ? <span style={{ color: T.orange }}> · new uploads</span> : null}
+                        </span>
+                      </div>
+                    ) : null}
+                    <p className="mt-2 leading-6" style={{ color: c.readinessProfile?.summary || c.progressSummary ? T.body : T.faint }}>
+                      {c.readinessProfile?.summary || c.progressSummary || "No work notes captured yet."}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-4">
+                      <button
+                        type="button"
+                        onClick={() => setReadinessOpenId((id) => (id === c.id ? null : c.id))}
+                        aria-expanded={readinessOpenId === c.id}
+                        className="flex items-center gap-1 text-[12px] font-medium"
+                        style={{ color: T.teal }}
+                      >
+                        {readinessOpenId === c.id ? "Hide readiness" : c.readinessProfile ? "Readiness details" : "Build readiness profile"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          close();
+                          setOpenControlId(c.id);
+                        }}
+                        className="flex items-center gap-1 text-[12px] font-medium"
+                        style={{ color: T.teal }}
+                      >
+                        Open control <Icon d={I.arrow} size={12} />
+                      </button>
+                    </div>
+                    {readinessOpenId === c.id ? (
+                      <div className="mt-3 rounded-lg p-3" style={{ background: T.canvas }}>
+                        <ReadinessView application={application} control={c} />
+                      </div>
                     ) : null}
                   </div>
-                ))}
-              </div>
-            )}
-
-            <div>
-              <textarea
-                value={draftNote}
-                onChange={(event) =>
-                  setDraftNote(event.target.value)
-                }
-                placeholder="Add a general note about this application, e.g. a correction to earlier assumptions or something worth remembering across every control."
-                rows={2}
-                className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-600 focus:border-blue-500"
-              />
-
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleSubmitNote}
-                  disabled={!draftNote.trim()}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Add Note
-                </button>
-              </div>
+                );
+              })}
             </div>
+          )}
+        </DetailPopout>
+      ) : null}
+
+      {dataCollectionOpen ? <DataCollectionPopout application={application} onClose={() => setDataCollectionOpen(false)} /> : null}
+
+      {openTile === "access" ? <AccessRequestsPopout controls={controls} onClose={close} /> : null}
+
+      {openTile === "rules" ? (
+        <DetailPopout title="Rule logic" subtitle={`How each control will be monitored · ${rulesDefined} of ${controls.length} defined`} onClose={close}>
+          {controls.length === 0 ? (
+            <p style={{ color: T.faint }}>No controls have been added yet.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {controls.map((c) => (
+                <div key={c.id} className="rounded-lg border p-3" style={{ borderColor: T.border }}>
+                  <div className="flex items-center gap-2">
+                    <CodeTag control={c} />
+                    <span className="min-w-0 flex-1 truncate font-semibold" style={{ color: T.text }}>{c.name}</span>
+                    {c.argosObjective.trim() ? null : <Pill fg={T.muted} bg="#eef1f4">Not defined yet</Pill>}
+                  </div>
+                  {c.argosObjective.trim() ? (
+                    <div className="mt-2">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN}>{c.argosObjective}</ReactMarkdown>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </DetailPopout>
+      ) : null}
+
+      {openTile === "evidence" ? (
+        <DetailPopout
+          title="Evidence vs testing data"
+          subtitle="Whether uploaded testing data independently backs up the evidence, across every control."
+          onClose={close}
+          actions={
+            onRefreshEvidenceDataGapAnalysis ? (
+              <button type="button" onClick={onRefreshEvidenceDataGapAnalysis} className={headerButton} style={{ borderColor: T.teal, color: T.teal, background: T.tealSoft }}>
+                Refresh
+              </button>
+            ) : null
+          }
+        >
+          {evidenceDataGapSummaryStale && evidenceDataGapSummary ? (
+            <p className="mb-3 rounded-md border px-3 py-2 text-[12px] font-medium" style={{ borderColor: "#f4c48f", background: T.orangeSoft, color: T.orange }}>
+              A source document behind this summary was deleted -- it may no longer be accurate. Click Refresh to update it.
+            </p>
+          ) : null}
+          {evidenceDataGapSummary ? (
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN}>{evidenceDataGapSummary}</ReactMarkdown>
+          ) : (
+            <p style={{ color: T.muted }}>Not yet analyzed. This fills in once at least one control has both evidence and testing data attached, or click Refresh to check now.</p>
+          )}
+          <h5 className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: T.muted }}>Per control</h5>
+          <div className="divide-y rounded-lg border" style={{ borderColor: T.border }}>
+            {controls.map((c) => (
+              <div key={c.id} className="flex items-center gap-2 px-3 py-2" style={{ borderColor: T.divider }}>
+                <CodeTag control={c} />
+                <span className="min-w-0 flex-1 truncate" style={{ color: T.text }}>{c.name}</span>
+                <UploadIndicators control={c} compact />
+              </div>
+            ))}
           </div>
-        </CollapsibleSection>
-      </div>
+        </DetailPopout>
+      ) : null}
+
+      <ControlPopout entry={openControl ? { application, control: openControl } : undefined} onClose={() => setOpenControlId(null)} />
     </div>
   );
 }
 
-function ContextField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  multiline = false,
+// ---------- Access requests ----------
+function AccessRequestsPopout({ controls, onClose }: { controls: ComplianceControl[]; onClose: () => void }) {
+  const [show, setShow] = useState<"open" | "all" | "granted">("open");
+  const [copied, setCopied] = useState(false);
+  const all = accessRequests(controls);
+  const list = all.filter((r) => (show === "all" ? true : show === "open" ? !r.task.completed : r.task.completed));
+  const openCount = all.filter((r) => !r.task.completed).length;
+
+  function copyOpen() {
+    const text = all
+      .filter((r) => !r.task.completed)
+      .map((r) => {
+        const code = clientCode(r.control);
+        return `- ${r.task.text} (for ${code !== "—" ? `${code} ` : ""}${r.control.name})`;
+      })
+      .join("\n");
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1800);
+      })
+      .catch(() => {});
+  }
+
+  const tab = (key: typeof show, label: string, n: number) => (
+    <button
+      type="button"
+      onClick={() => setShow(key)}
+      aria-pressed={show === key}
+      className="rounded-full border px-2.5 py-[3px] text-[12px] font-medium"
+      style={show === key ? { background: T.tealActive, borderColor: T.teal, color: T.teal } : { borderColor: T.border, color: T.body }}
+    >
+      {label} <span className="ml-1 text-[11px] opacity-70">{n}</span>
+    </button>
+  );
+
+  return (
+    <DetailPopout
+      title="Access requests"
+      subtitle="Every access or credential the controls need from the application team -- and which control each one is for. Aim: one shared, read-only credential that covers them all."
+      onClose={onClose}
+      actions={
+        openCount ? (
+          <button type="button" onClick={copyOpen} title="Copy the open requests as a list, ready for an email" className={headerButton} style={{ borderColor: T.teal, color: T.teal, background: T.tealSoft }}>
+            {copied ? "Copied" : `Copy ${openCount} open`}
+          </button>
+        ) : null
+      }
+    >
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {tab("open", "Open", openCount)}
+        {tab("granted", "Granted", all.length - openCount)}
+        {tab("all", "All", all.length)}
+      </div>
+      {all.length === 0 ? (
+        <p style={{ color: T.faint }}>No access or credential requests have come up yet for this application&apos;s controls.</p>
+      ) : list.length === 0 ? (
+        <p style={{ color: T.faint }}>Nothing in this view.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border" style={{ borderColor: T.border }}>
+          <table className="w-full text-[12.5px]">
+            <thead>
+              <tr className="text-left text-[10.5px] font-semibold uppercase tracking-[0.05em]" style={{ background: "#f7f9fb", color: T.muted }}>
+                <th className="px-3 py-2">Request</th>
+                <th className="px-3 py-2">For control</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Latest note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(({ control, task }) => {
+                const note = task.notes[task.notes.length - 1];
+                return (
+                  <tr key={task.id} className="border-t align-top" style={{ borderColor: T.divider }}>
+                    <td className="px-3 py-2.5" style={{ color: task.completed ? T.muted : T.text }}>
+                      {task.text}
+                      {task.required ? null : <span className="ml-1.5 text-[10.5px]" style={{ color: T.faint }}>(optional)</span>}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="flex items-center gap-1.5">
+                        <CodeTag control={control} />
+                        <span style={{ color: T.body }}>{control.name}</span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {task.completed ? <Pill fg={T.green} bg={T.greenSoft}>Granted</Pill> : <Pill fg={T.orange} bg={T.orangeSoft}>Open</Pill>}
+                    </td>
+                    <td className="max-w-[260px] px-3 py-2.5 text-[12px]" style={{ color: T.muted }}>
+                      {note ? (
+                        <>
+                          <span className="line-clamp-3" style={{ color: T.body }}>{note.text}</span>
+                          {noteSourceLabel(note) ? <span className="mt-0.5 block text-[11px]">{noteSourceLabel(note)}</span> : null}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </DetailPopout>
+  );
+}
+
+// ---------- Application context ----------
+// The form is created fresh each time the pop-out opens, from the
+// application as it is now -- so it never shows stale values.
+function ContextPopout({
+  application,
+  isProcessing,
+  onSave,
+  onRegenerateAll,
+  onClose,
 }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  multiline?: boolean;
+  application: Application;
+  isProcessing: boolean;
+  onSave: (context: ApplicationContextInput) => void;
+  onRegenerateAll: () => void;
+  onClose: () => void;
 }) {
+  const [form, setForm] = useState(() => ({
+    applicationPurpose: application.applicationPurpose,
+    businessProcess: application.businessProcess,
+    applicationOwner: application.applicationOwner,
+    technicalOwner: application.technicalOwner,
+    applicationContacts: application.applicationContacts.join("\n"),
+    hostingDetails: application.hostingDetails,
+    integrations: application.integrations.join("\n"),
+    identityTypes: application.identityTypes.join("\n"),
+    dataClassification: application.dataClassification,
+    financialRelevance: application.financialRelevance,
+  }));
+  const [saved, setSaved] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const set = (key: keyof typeof form) => (value: string) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setSaved(false);
+  };
+
+  function save() {
+    onSave({
+      ...form,
+      applicationContacts: splitList(form.applicationContacts),
+      integrations: splitList(form.integrations),
+      identityTypes: splitList(form.identityTypes),
+    });
+    setSaved(true);
+  }
+
+  return (
+    <DetailPopout
+      title="Application context"
+      subtitle="Combined with the assignment objective and each control's objective whenever a checklist is generated."
+      onClose={onClose}
+      actions={
+        <>
+          <button
+            type="button"
+            onClick={() => setConfirmRegenerate(true)}
+            disabled={application.controls.length === 0 || isProcessing}
+            className={`${headerButton} disabled:cursor-not-allowed disabled:opacity-40`}
+            style={{ borderColor: T.orange, color: T.orange, background: "#fff" }}
+          >
+            Regenerate all checklists
+          </button>
+          <button type="button" onClick={save} className={headerButton} style={{ borderColor: T.teal, color: "#fff", background: T.teal }}>
+            {saved ? "Saved" : "Save context"}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Application purpose" value={form.applicationPurpose} onChange={set("applicationPurpose")} placeholder="What the application does and why the business uses it." multiline />
+        <Field label="Business process" value={form.businessProcess} onChange={set("businessProcess")} placeholder="e.g. vendor onboarding, payment processing, journal entries, financial reporting." multiline />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Application owner" value={form.applicationOwner} onChange={set("applicationOwner")} placeholder="Business or control owner" />
+          <Field label="Technical owner" value={form.technicalOwner} onChange={set("technicalOwner")} placeholder="Technical or support owner" />
+        </div>
+        <Field label="Application contacts" value={form.applicationContacts} onChange={set("applicationContacts")} placeholder="One name, team, or email per line." multiline />
+        <Field label="Hosting and architecture details" value={form.hostingDetails} onChange={set("hostingDetails")} placeholder="Servers, cloud platforms, databases, operating systems, tenants, and environments." multiline />
+        <Field label="Integrations" value={form.integrations} onChange={set("integrations")} placeholder="APIs, file transfers, banks, identity providers, upstream and downstream systems." multiline />
+        <Field label="Known identity types" value={form.identityTypes} onChange={set("identityTypes")} placeholder="Users, groups, administrators, shared accounts, service accounts, API keys, certificates, tokens, vendors." multiline />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Data classification" value={form.dataClassification} onChange={set("dataClassification")} placeholder="e.g. financial, confidential, restricted" />
+          <Field label="Financial relevance" value={form.financialRelevance} onChange={set("financialRelevance")} placeholder="How the application may affect financial reporting." multiline />
+        </div>
+        <p className="rounded-lg border px-3 py-2 text-[12.5px] leading-6" style={{ borderColor: "#cfe6ea", background: "#f1f8f9", color: T.body }}>
+          Saving context doesn&apos;t change existing checklists. To apply it, regenerate a single control&apos;s checklist from that control, or use <b>Regenerate all checklists</b> above.
+        </p>
+      </div>
+
+      {confirmRegenerate ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(15,30,45,0.45)] p-4" onClick={() => setConfirmRegenerate(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Regenerate every checklist" onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-xl border bg-white p-5 shadow-2xl" style={{ borderColor: T.border }}>
+            <h4 className="text-[16px] font-semibold" style={{ color: T.orange }}>Regenerate checklists for every control?</h4>
+            <p className="mt-2 text-[13px] leading-6" style={{ color: T.body }}>Your existing notes are not deleted, but every control&apos;s checklist resets to &ldquo;Review Pending&rdquo; -- even controls this context change didn&apos;t affect -- and an old item whose wording no longer matches stays alongside the new one.</p>
+            <p className="mt-2 text-[13px] leading-6" style={{ color: T.body }}>If the change only affects one control, regenerate that control&apos;s checklist on its own instead.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirmRegenerate(false)} className={headerButton} style={{ borderColor: T.border, color: T.body, background: "#fff" }}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmRegenerate(false);
+                  onRegenerateAll();
+                }}
+                className={headerButton}
+                style={{ borderColor: T.orange, color: "#fff", background: T.orange }}
+              >
+                Regenerate all checklists
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </DetailPopout>
+  );
+}
+
+function Field({ label, value, onChange, placeholder, multiline = false }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; multiline?: boolean }) {
+  const cls = "w-full rounded-lg border bg-white px-3 py-2.5 text-[13px] outline-none focus:border-[#0f7d8c]";
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-medium text-slate-200">
-        {label}
-      </span>
-
+      <span className="mb-1.5 block text-[12px] font-semibold" style={{ color: T.text }}>{label}</span>
       {multiline ? (
-        <textarea
-          value={value}
-          onChange={(event) =>
-            onChange(event.target.value)
-          }
-          placeholder={placeholder}
-          rows={3}
-          className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-600 focus:border-blue-500"
-        />
+        <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={3} className={`${cls} resize-y leading-6`} style={{ borderColor: T.border, color: T.text }} />
       ) : (
-        <input
-          type="text"
-          value={value}
-          onChange={(event) =>
-            onChange(event.target.value)
-          }
-          placeholder={placeholder}
-          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-blue-500"
-        />
+        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={cls} style={{ borderColor: T.border, color: T.text }} />
       )}
     </label>
   );
 }
 
-function WorkProgressSummaryPanel({
-  controls,
-}: {
-  controls: ComplianceControl[];
-}) {
-  if (controls.length === 0) {
-    return (
-      <p className="text-sm text-slate-500">
-        No controls have been added yet.
-      </p>
-    );
-  }
+// "View details" in the New UI: the whole application detail as a large
+// pop-out over the application tiles. Tile pop-outs and the control
+// pop-out stack above it; Esc closes the top-most one first. Prep email
+// / open questions / gap analysis / regenerate / uploads run in the
+// assistant result pop-up on top of this one (not the chat drawer).
+export function ApplicationDetailPopout({ onClose, ...props }: ApplicationDetailProps & { onClose: () => void }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const { runTask } = useHubChat();
+  const applicationId = props.application.id;
 
-  return (
-    <div className="space-y-2">
-      {controls.map((control) => (
-        <div
-          key={control.id}
-          className="rounded-lg border border-slate-800 bg-slate-900 p-3"
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (!isTopmostDialog(ref.current)) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+
+  return createPortal(
+    <div className="fixed inset-0 z-[42] flex items-start justify-center overflow-y-auto bg-[rgba(15,30,45,0.45)] p-3 sm:p-6" onClick={onClose}>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${props.application.name} details`}
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-6xl rounded-2xl p-4 shadow-2xl sm:p-5"
+        style={{ background: T.canvas }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          title="Close (Esc)"
+          className="absolute -right-2 -top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-md hover:bg-[#eef1f4]"
+          style={{ borderColor: T.border, color: T.body }}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-medium text-slate-100">
-              {control.name}
-            </span>
-
-            <span className="rounded-md bg-white px-1.5 py-1">
-              <UploadIndicators
-                control={control}
-                compact
-              />
-            </span>
-          </div>
-
-          <p className="mt-2 text-sm leading-6 text-slate-300">
-            {control.progressSummary ||
-              "No work notes captured yet."}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AccessCredentialsPanel({
-  controls,
-}: {
-  controls: ComplianceControl[];
-}) {
-  const controlsWithAccessTasks = controls
-    .map((control) => ({
-      control,
-      accessTasks: control.nextTasks.filter(
-        (task) =>
-          task.category === "Access" &&
-          !task.irrelevant
-      ),
-    }))
-    .filter(
-      ({ accessTasks }) => accessTasks.length > 0
-    );
-
-  if (controlsWithAccessTasks.length === 0) {
-    return (
-      <p className="text-sm text-slate-500">
-        No access or credential asks have come up
-        yet for this application&apos;s controls.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {controlsWithAccessTasks.map(
-        ({ control, accessTasks }) => (
-          <div
-            key={control.id}
-            className="rounded-lg border border-slate-800 bg-slate-900 p-3"
-          >
-            <span className="font-medium text-slate-100">
-              {control.name}
-            </span>
-
-            <ul className="mt-2 space-y-2">
-              {accessTasks.map((task) => (
-                <li key={task.id} className="text-sm">
-                  <div className="flex items-start gap-2">
-                    <span
-                      className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                        task.completed
-                          ? "bg-emerald-500"
-                          : "bg-slate-600"
-                      }`}
-                    />
-                    <span
-                      className={
-                        task.completed
-                          ? "text-slate-400 line-through"
-                          : "text-slate-200"
-                      }
-                    >
-                      {task.text}
-                    </span>
-                  </div>
-
-                  {task.notes.length > 0 ? (
-                    <ul className="ml-4 mt-1 space-y-1 border-l border-slate-700 pl-3">
-                      {task.notes.map((note) => (
-                        <li
-                          key={note.id}
-                          className="text-xs leading-5 text-slate-400"
-                        >
-                          <NoteBullets text={note.text} />
-                          {noteSourceLabel(note) ? (
-                            <p className="mt-0.5 text-slate-500">
-                              {noteSourceLabel(note)}
-                            </p>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )
-      )}
-    </div>
-  );
-}
-
-function ArgosRuleLogicPanel({
-  controls,
-}: {
-  controls: ComplianceControl[];
-}) {
-  if (controls.length === 0) {
-    return (
-      <p className="text-sm text-slate-500">
-        No controls have been added yet.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {controls.map((control) => (
-        <div
-          key={control.id}
-          className="rounded-lg border border-slate-800 bg-slate-900 p-3"
-        >
-          <span className="font-medium text-slate-100">
-            {control.name}
-          </span>
-
-          {control.argosObjective ? (
-            <div className="mt-2 text-sm text-slate-300">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={
-                  ARGOS_MARKDOWN_COMPONENTS
-                }
-              >
-                {control.argosObjective}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Not yet defined.
-            </p>
-          )}
-        </div>
-      ))}
-    </div>
+          <Icon d={I.close} size={16} />
+        </button>
+        <ApplicationDetail
+          {...props}
+          {...(runTask
+            ? {
+                onPrepEmail: () => runTask({ kind: "prepEmail", applicationId }),
+                onShowQuestions: () => runTask({ kind: "openQuestions", applicationId }),
+                onRefreshEvidenceDataGapAnalysis: () => runTask({ kind: "gapAnalysis", applicationId }),
+                onRegenerateAllChecklists: () => runTask({ kind: "regenerateAll", applicationId }),
+                onUploadEvidence: () => runTask({ kind: "uploadEvidence", applicationId }),
+                onUploadData: () => runTask({ kind: "uploadData", applicationId }),
+              }
+            : {})}
+        />
+      </div>
+    </div>,
+    document.body
   );
 }

@@ -22,6 +22,7 @@ import { createPortal } from "react-dom";
 import ControlDetailsButton from "@/components/ControlDetailsButton";
 import UploadIndicators from "@/components/UploadIndicators";
 import type { FlatControlEntry } from "@/services/applicationFilters";
+import { splitApplicationName } from "@/services/applicationName";
 import type { Application, ComplianceControl } from "@/services/commandEngine";
 import { controlUploadState } from "@/services/uploads";
 import {
@@ -52,7 +53,10 @@ const SORTS: { key: Sort; label: string }[] = [
   { key: "name", label: "Name (A–Z)" },
 ];
 
-type Row = { app: Application; byKey: Map<string, ComplianceControl>; controls: ComplianceControl[] };
+// byKey holds a LIST per control type: one application can have more
+// than one control under the same code (e.g. two IS05 access reviews),
+// and each must show -- they stack inside the cell.
+type Row = { app: Application; byKey: Map<string, ComplianceControl[]>; controls: ComplianceControl[] };
 
 // A "gap" is any in-scope control that is not completed or is missing
 // testing data -- what still stands between the app and full coverage.
@@ -125,7 +129,7 @@ export default function ControlMatrix({
       row = { app: e.application, byKey: new Map(), controls: [] };
       rowsById.set(e.application.id, row);
     }
-    row.byKey.set(key, e.control);
+    row.byKey.set(key, [...(row.byKey.get(key) ?? []), e.control]);
     row.controls.push(e.control);
   }
   const totalApps = new Set(entries.map((e) => e.application.id)).size;
@@ -189,7 +193,10 @@ export default function ControlMatrix({
               type="button"
               onClick={() => toggleCode(g.key)}
               aria-pressed={on}
-              title={`${g.title} — ${g.items.length} application${g.items.length === 1 ? "" : "s"}`}
+              title={(() => {
+                const apps = new Set(g.items.map((i) => i.app.id)).size;
+                return `${g.title} — ${apps} application${apps === 1 ? "" : "s"}${g.items.length > apps ? `, ${g.items.length} controls` : ""}`;
+              })()}
               className="rounded-md border px-1.5 py-[2px] font-mono text-[11px] font-semibold transition"
               style={on ? { background: T.teal, borderColor: T.teal, color: "#fff" } : { background: "#fff", borderColor: T.border, color: T.body }}
             >
@@ -259,42 +266,53 @@ export default function ControlMatrix({
                   <td className="sticky left-0 z-10 border-b px-3 py-1.5" style={{ background: T.card, borderColor: T.divider }}>
                     <Link href={`/applications?app=${encodeURIComponent(r.app.id)}`} className="block truncate font-semibold hover:underline" style={{ color: T.text }} title={`${r.app.name} — open application`}>
                       {appLabel(r.app)}
+                      {/* Context ("CXT", "EU"...) keeps same-named systems apart. */}
+                      {splitApplicationName(r.app.name).context ? (
+                        <span className="ml-1.5 text-[11px] font-medium" style={{ color: T.muted }}>{splitApplicationName(r.app.name).context}</span>
+                      ) : null}
                     </Link>
                     <span className="block truncate text-[10.5px]" style={{ color: T.faint }}>{r.app.hosting} · {r.app.controls.length} controls</span>
                   </td>
                   {groups.map((g) => {
-                    const c = r.byKey.get(g.key);
-                    if (!c) {
+                    const cs = r.byKey.get(g.key) ?? [];
+                    if (cs.length === 0) {
                       return (
                         <td key={g.key} className="border-b px-1.5 py-1.5 text-center" style={{ borderColor: T.divider }}>
                           <span className="mx-auto block h-[38px] w-[84px] rounded-[6px] border border-dashed" style={{ borderColor: T.divider }} title={`${appLabel(r.app)} · ${g.title}: not applicable`} />
                         </td>
                       );
                     }
-                    const tone = STATUS_TONE[c.controlStatus];
-                    const s = taskStats([c]);
-                    const hot = needsAttention(c);
-                    const dim = filtering && !matchIds.has(c.id);
                     return (
-                      <td key={g.key} className="border-b px-1.5 py-1.5 text-center" style={{ borderColor: T.divider }}>
-                        <button
-                          type="button"
-                          onClick={() => onOpen(c.id)}
-                          className="mx-auto flex h-[38px] w-[84px] flex-col items-center justify-center gap-0.5 rounded-[6px] border transition hover:brightness-95"
-                          style={{
-                            background: tone.bg,
-                            borderColor: hot ? T.red : `${tone.fg}55`,
-                            boxShadow: c.id === openId ? `0 0 0 2px ${T.teal}` : hot ? `inset 0 0 0 1px ${T.red}` : undefined,
-                            opacity: dim ? 0.35 : 1,
-                          }}
-                          title={`${appLabel(r.app)} · ${c.name}\n${c.controlStatus}${hot ? " · needs attention" : ""}\n${s.done}/${s.total} tasks`}
-                        >
-                          <span className="text-[10px] font-semibold" style={{ color: tone.fg }}>
-                            {hot ? "! " : ""}
-                            {STATUS_SHORT[c.controlStatus]} · {s.done}/{s.total}
-                          </span>
-                          <UploadIndicators control={c} mini />
-                        </button>
+                      <td key={g.key} className="border-b px-1.5 py-1.5 text-center align-middle" style={{ borderColor: T.divider }}>
+                        <span className="flex flex-col items-center gap-1">
+                          {cs.map((c) => {
+                            const tone = STATUS_TONE[c.controlStatus];
+                            const s = taskStats([c]);
+                            const hot = needsAttention(c);
+                            const dim = filtering && !matchIds.has(c.id);
+                            return (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => onOpen(c.id)}
+                                className="relative flex h-[38px] w-[84px] flex-col items-center justify-center gap-0.5 rounded-[6px] border transition hover:brightness-95"
+                                style={{
+                                  background: tone.bg,
+                                  borderColor: hot ? T.red : `${tone.fg}55`,
+                                  boxShadow: c.id === openId ? `0 0 0 2px ${T.teal}` : hot ? `inset 0 0 0 1px ${T.red}` : undefined,
+                                  opacity: dim ? 0.35 : 1,
+                                }}
+                                title={`${appLabel(r.app)} · ${c.name}\n${c.controlStatus}${hot ? " · needs attention" : ""}\n${s.done}/${s.total} tasks${cs.length > 1 ? `\n(${cs.length} ${g.key} controls on this application)` : ""}`}
+                              >
+                                <span className="text-[10px] font-semibold" style={{ color: tone.fg }}>
+                                  {hot ? "! " : ""}
+                                  {STATUS_SHORT[c.controlStatus]} · {s.done}/{s.total}
+                                </span>
+                                <UploadIndicators control={c} mini />
+                              </button>
+                            );
+                          })}
+                        </span>
                       </td>
                     );
                   })}
@@ -312,7 +330,7 @@ export default function ControlMatrix({
                 {filtering || codes.length ? `Filtered (${allRows.length})` : "All applications"}
               </td>
               {groups.map((g) => {
-                const cells = allRows.map((r) => r.byKey.get(g.key)).filter((c): c is ComplianceControl => Boolean(c));
+                const cells = allRows.flatMap((r) => r.byKey.get(g.key) ?? []);
                 const n = cells.length;
                 const done = cells.filter((c) => c.controlStatus === "Completed").length;
                 const testing = cells.filter((c) => controlUploadState(c).testing.uploaded).length;

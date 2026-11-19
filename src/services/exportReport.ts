@@ -806,7 +806,7 @@ function progressBarColumn(
 
 // Comprehensive single-application export: every context field, the
 // application-level evidence-vs-data summary, work progress and Argos
-// rollups, application notes, and a full detail section for every
+// rollups, and a full detail section for every
 // control -- objective/risk/rationale/strategy, uploads, evidence-vs-testing-data
 // analysis, the complete checklist with per-task notes, control notes,
 // and the checklist change log. Nothing on the Application or
@@ -933,7 +933,7 @@ export function generateApplicationSummaryPdf(
   y = ensureRoom(doc, y, 60);
   y = drawSectionBanner(
     doc,
-    "Work Progress Summary",
+    "Work Progress",
     marginX,
     y,
     pageWidth,
@@ -963,51 +963,37 @@ export function generateApplicationSummaryPdf(
   });
   y = getFinalY(doc) + 20;
 
-  // Access & Credentials Profile — every not-yet-completed "Access"
-  // checklist task across this application's controls, the same rollup
-  // shown in the in-app Access & Credentials Profile panel: the
-  // permission sets already asked for or already held, to line up
-  // against one shared credential for real-time Argos pulls.
-  const outstandingAccessRows = application.controls.flatMap(
-    (control) =>
-      control.nextTasks
-        .filter(
-          (task) =>
-            task.category === "Access" &&
-            !task.completed &&
-            !task.irrelevant
-        )
-        .map((task) => [control.name, task.text])
+  // Access requests -- every "Access" checklist item across this
+  // application's controls (open and granted), with the control each
+  // one is for: the same list as the in-app Access requests pop-out.
+  const accessRows = application.controls.flatMap((control) =>
+    control.nextTasks
+      .filter((task) => task.category === "Access" && !task.irrelevant)
+      .map((task) => {
+        const code = control.clientContext.split(" - ")[0]?.trim();
+        return [task.text, `${code ? `${code} · ` : ""}${control.name}`, task.completed ? "Granted" : "Open"];
+      })
   );
 
   y = ensureRoom(doc, y, 60);
-  y = drawSectionBanner(
-    doc,
-    "Access & Credentials Profile",
-    marginX,
-    y,
-    pageWidth,
-    [124, 58, 237]
-  );
+  y = drawSectionBanner(doc, "Access Requests", marginX, y, pageWidth);
 
   themedTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
-    theme: "grid",
-    head: [["Control", "Open Access Ask"]],
-    body:
-      outstandingAccessRows.length > 0
-        ? outstandingAccessRows
-        : [
-            [
-              "—",
-              "No outstanding access or credential asks.",
-            ],
-          ],
+    head: [["Request", "For Control", "Status"]],
+    body: accessRows.length > 0 ? accessRows : [["No access or credential requests yet.", "—", "—"]],
     styles: { fontSize: 8.5, cellPadding: 6, valign: "top" },
     columnStyles: {
-      0: { cellWidth: 150 },
-      1: { cellWidth: "auto" },
+      0: { cellWidth: "auto" },
+      1: { cellWidth: 170 },
+      2: { cellWidth: 60 },
+    },
+    didParseCell: (data) => {
+      if (data.section === "body" && data.column.index === 2) {
+        if (data.cell.raw === "Open") data.cell.styles.textColor = PDF.orange;
+        if (data.cell.raw === "Granted") data.cell.styles.textColor = PDF.green;
+      }
     },
   });
   y = getFinalY(doc) + 20;
@@ -1015,7 +1001,7 @@ export function generateApplicationSummaryPdf(
   y = ensureRoom(doc, y, 60);
   y = drawSectionBanner(
     doc,
-    "Argos Rule Logic",
+    "Rule Logic",
     marginX,
     y,
     pageWidth,
@@ -1026,7 +1012,7 @@ export function generateApplicationSummaryPdf(
     startY: y,
     margin: { left: marginX, right: marginX },
     theme: "grid",
-    head: [["Control", "Argos Objective"]],
+    head: [["Control", "Rule Logic"]],
     body:
       application.controls.length > 0
         ? application.controls.map((control) => [
@@ -1043,36 +1029,6 @@ export function generateApplicationSummaryPdf(
   });
   y = getFinalY(doc) + 20;
 
-  y = ensureRoom(doc, y, 60);
-  y = drawSectionBanner(
-    doc,
-    "Application Notes",
-    marginX,
-    y,
-    pageWidth,
-    [190, 24, 93]
-  );
-
-  themedTable(doc, {
-    startY: y,
-    margin: { left: marginX, right: marginX },
-    theme: "grid",
-    head: [["Date", "Source", "Note"]],
-    body:
-      application.notes.length > 0
-        ? application.notes.map((note) => [
-            new Date(note.createdAt).toLocaleDateString(),
-            note.sourceKind,
-            note.text,
-          ])
-        : [["—", "—", "No application-level notes recorded."]],
-    styles: { fontSize: 8.5, cellPadding: 6, valign: "top" },
-    columnStyles: {
-      0: { cellWidth: 70 },
-      1: { cellWidth: 60 },
-      2: { cellWidth: "auto" },
-    },
-  });
   y = getFinalY(doc) + 24;
 
   for (const control of application.controls) {
@@ -1385,15 +1341,17 @@ export function buildExecutiveProgressPdf(
     margin: { left: marginX, right: marginX },
     theme: "grid",
     head: [["Code", "Control", "Apps", "Done", "Evidence", "Testing Data", "Tasks", "Evidence + Testing"]],
+    // Done / Evidence / Testing are out of the controls of this type;
+    // Apps shows "2 (3)" when one application has two of them.
     body: metrics.byType.map((t) => [
       t.isCode ? t.key : "—",
       t.title,
-      String(t.apps),
-      `${t.completed}/${t.apps}`,
-      `${t.withEvidence}/${t.apps}`,
-      `${t.withTesting}/${t.apps}`,
+      t.controls === t.apps ? String(t.apps) : `${t.apps} (${t.controls})`,
+      `${t.completed}/${t.controls}`,
+      `${t.withEvidence}/${t.controls}`,
+      `${t.withTesting}/${t.controls}`,
       `${t.tasks.done}/${t.tasks.total}`,
-      formatPercent(t.both, t.apps),
+      formatPercent(t.both, t.controls),
     ]),
     ...progressBarColumn(7),
     styles: { fontSize: 8.5, cellPadding: 5 },
@@ -1420,17 +1378,31 @@ export function buildExecutiveProgressPdf(
       Object.entries(MATRIX_LABEL).map(([k, label]) => [k, { label, fill: PDF_STATUS[k].bg, text: PDF_STATUS[k].fg }])
     ) as Record<ControlStatus, { label: string; fill: [number, number, number]; text: [number, number, number] }>;
     const keys = metrics.byType.map((t) => t.key);
-    const cellFor = (control: ComplianceControl | undefined) => {
-      if (!control) return "—";
-      const u = controlUploadState(control);
-      const up = u.evidence.uploaded && u.testing.uploaded ? "E+T" : u.evidence.uploaded ? "E" : u.testing.uploaded ? "T" : "none";
-      return `${MATRIX_STATUS[control.controlStatus].label}\n${up}`;
+    // One line pair per control: an application can have more than one
+    // control under the same code (e.g. two IS05 reviews).
+    const cellFor = (controls: ComplianceControl[]) => {
+      if (controls.length === 0) return "—";
+      return controls
+        .map((control) => {
+          const u = controlUploadState(control);
+          const up = u.evidence.uploaded && u.testing.uploaded ? "E+T" : u.evidence.uploaded ? "E" : u.testing.uploaded ? "T" : "none";
+          return `${MATRIX_STATUS[control.controlStatus].label}\n${up}`;
+        })
+        .join("\n");
     };
+    // Cell colour follows the control furthest from done.
+    const STATUS_RANK: ControlStatus[] = ["On Hold", "New", "Checklist Review Pending", "In Progress", "Ready for Review", "Completed"];
+    const leadControl = (controls: ComplianceControl[]) =>
+      [...controls].sort((x, y) => Number(needsAttention(y)) - Number(needsAttention(x)) || STATUS_RANK.indexOf(x.controlStatus) - STATUS_RANK.indexOf(y.controlStatus))[0];
     const matrixRows = [...applications]
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       .map((application) => {
-        const byKey = new Map(application.controls.map((c) => [controlTypeKey(c), c]));
-        return { application, cells: keys.map((k) => byKey.get(k)) };
+        const byKey = new Map<string, ComplianceControl[]>();
+        for (const c of application.controls) {
+          const k = controlTypeKey(c);
+          byKey.set(k, [...(byKey.get(k) ?? []), c]);
+        }
+        return { application, cells: keys.map((k) => byKey.get(k) ?? []) };
       });
 
     y = ensureRoom(doc, y, 90);
@@ -1464,7 +1436,8 @@ export function buildExecutiveProgressPdf(
       columnStyles: { 0: { cellWidth: 104, halign: "left", fontStyle: "bold", fontSize: 7.5 } },
       didParseCell: (data) => {
         if (data.section !== "body" || data.column.index === 0) return;
-        const control = matrixRows[data.row.index]?.cells[data.column.index - 1];
+        const controls = matrixRows[data.row.index]?.cells[data.column.index - 1] ?? [];
+        const control = controls.length ? leadControl(controls) : undefined;
         if (!control) {
           data.cell.styles.textColor = PDF.gray;
           return;
@@ -1552,7 +1525,7 @@ export function buildExecutiveProgressPdf(
   y = ensureRoom(doc, y, 60);
   y = drawSectionBanner(
     doc,
-    "Work Progress Summary",
+    "Work Progress",
     marginX,
     y,
     pageWidth,
@@ -1596,9 +1569,9 @@ export function buildExecutiveProgressPdf(
   });
   y = getFinalY(doc) + 24;
 
-  // Outstanding Access & Credentials asks — every not-yet-completed
-  // "Access" checklist task across every control, the same rollup the
-  // in-app Access & Credentials Profile panel shows per application,
+  // Open access requests — every not-yet-completed "Access" checklist
+  // task across every control, the same list the in-app Access
+  // requests pop-out shows per application,
   // surfaced here at the executive level as concrete open asks toward
   // the shared credential each application needs for real-time Argos
   // pulls.
@@ -1624,7 +1597,7 @@ export function buildExecutiveProgressPdf(
     y = ensureRoom(doc, y, 60);
     y = drawSectionBanner(
       doc,
-      "Outstanding Access & Credentials Asks",
+      "Open Access Requests",
       marginX,
       y,
       pageWidth,
@@ -1635,7 +1608,7 @@ export function buildExecutiveProgressPdf(
       startY: y,
       margin: { left: marginX, right: marginX },
       theme: "grid",
-      head: [["Application", "Control", "Open Access Ask"]],
+      head: [["Application", "Control", "Request"]],
       body: outstandingAccessRows,
       styles: {
         fontSize: 8.5,

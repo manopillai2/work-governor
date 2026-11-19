@@ -104,6 +104,14 @@ export const controls = pgTable("controls", {
     .notNull()
     .default(false),
 
+  // Control readiness profile (services/readiness.ts) -- evidence vs.
+  // real data per population / configuration layer / access, rebuilt on
+  // demand after uploads. Null until first built.
+  readinessProfile: jsonb("readiness_profile"),
+  // True when new evidence/data was uploaded for this control after the
+  // profile was built.
+  readinessStale: boolean("readiness_stale").notNull().default(false),
+
   notes: jsonb("notes").$type<Note[]>().notNull().default([]),
   nextTasks: jsonb("next_tasks").$type<ChecklistTask[]>().notNull().default([]),
   checklistChangeLog: jsonb("checklist_change_log")
@@ -193,4 +201,71 @@ export const backups = pgTable("backups", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+});
+
+// ---------- data collection (services/collectors.ts) ----------
+// Deliberately no foreign keys to `applications`: /api/state's autosave
+// deletes and re-inserts every application row, and a cascade would
+// wipe these on every save (same reason as evidence_documents).
+
+// One way to reach an application's real data (API, database...). Each
+// variable becomes an environment variable for the collector script;
+// secret values are stored encrypted (services/secrets.ts) and are
+// never returned to the browser or sent to the AI.
+export const appConnections = pgTable("app_connections", {
+  id: text("id").primaryKey(),
+  applicationId: text("application_id").notNull(),
+  label: text("label").notNull(),
+  environment: text("environment").notNull().default(""),
+  platform: text("platform").notNull().default("REST"),
+  authMethod: text("auth_method").notNull().default(""),
+  variables: jsonb("variables")
+    .$type<Array<{ name: string; secret: boolean; value: string }>>()
+    .notNull()
+    .default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Versioned collector scripts (collect_users.py), written by the AI
+// following the collect-app-data skill or imported from an existing
+// collector folder. Only an "approved" version can run.
+export const collectorScripts = pgTable("collector_scripts", {
+  id: text("id").primaryKey(),
+  applicationId: text("application_id").notNull(),
+  connectionId: text("connection_id"),
+  version: integer("version").notNull(),
+  code: text("code").notNull().default(""),
+  appNotes: text("app_notes").notNull().default(""),
+  requirements: jsonb("requirements").$type<string[]>().notNull().default([]),
+  instruction: text("instruction").notNull().default(""),
+  changeSummary: text("change_summary").notNull().default(""),
+  questions: jsonb("questions").$type<string[]>().notNull().default([]),
+  source: text("source").notNull().default("generated"),
+  status: text("status").notNull().default("draft"),
+  securityReport: jsonb("security_report").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+});
+
+export const collectorRuns = pgTable("collector_runs", {
+  id: text("id").primaryKey(),
+  applicationId: text("application_id").notNull(),
+  scriptId: text("script_id").notNull(),
+  connectionId: text("connection_id"),
+  controlName: text("control_name").notNull().default(""),
+  status: text("status").notNull().default("running"),
+  exitCode: integer("exit_code"),
+  log: text("log").notNull().default(""),
+  outputFiles: jsonb("output_files")
+    .$type<Array<{ name: string; bytes: number }>>()
+    .notNull()
+    .default([]),
+  blockers: jsonb("blockers")
+    .$type<Array<{ name: string; text: string }>>()
+    .notNull()
+    .default([]),
+  evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull().default([]),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
 });

@@ -553,7 +553,7 @@ function ArgosStage() {
           <Icon name="database" size={22} />
           <span>Authoritative Data</span>
           <p className="cg-argos-source-caption">
-            Pulled via one shared Access &amp; Credentials Profile
+            Pulled via one shared credential (see Access requests)
           </p>
           <div className="cg-record-stream">
             {records.map((record, index) => (

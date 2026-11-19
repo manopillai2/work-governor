@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import ConnectedControlCard from "@/components/ConnectedControlCard";
+import ReadinessView from "./ReadinessView";
 import { splitApplicationName } from "@/services/applicationName";
 import type { FlatControlEntry } from "@/services/applicationFilters";
 import { CLIENT_REFERENCE_TABLE } from "@/services/clientReference";
@@ -102,6 +103,9 @@ export function ControlPopout({ entry, onClose }: { entry: FlatControlEntry | un
         >
           <Icon d={I.close} size={16} />
         </button>
+        <div className="mb-3 rounded-xl p-3" style={{ background: T.canvas }}>
+          <ReadinessView application={entry.application} control={entry.control} />
+        </div>
         <ConnectedControlCard application={entry.application} control={entry.control} expanded onToggleExpanded={onClose} />
       </div>
     </div>,
@@ -111,9 +115,13 @@ export function ControlPopout({ entry, onClose }: { entry: FlatControlEntry | un
 
 // ---------- shared derivations ----------
 export function groupDetails(group: ControlGroup): Details[] {
+  // An application with two controls of this type gets both, labelled
+  // with the control's own name so they can be told apart.
+  const perApp = new Map<string, number>();
+  for (const { app } of group.items) perApp.set(app.id, (perApp.get(app.id) ?? 0) + 1);
   return group.items.map(({ app, c }) => ({
     controlName: group.title,
-    applicationName: appLabel(app),
+    applicationName: (perApp.get(app.id) ?? 0) > 1 ? `${appLabel(app)} — ${c.name}` : appLabel(app),
     framework: c.framework,
     globalControlReference: c.globalControlReference,
     clientContext: c.clientContext,
@@ -302,4 +310,15 @@ export function EmptyResult({ onReset }: { onReset: () => void }) {
       <button type="button" onClick={onReset} className="font-medium underline" style={{ color: T.teal }}>Clear</button>
     </div>
   );
+}
+
+// ---------- stacked dialogs ----------
+// True when `el` is the top-most open modal dialog -- the last
+// [aria-modal="true"] in the document (portals append in open order).
+// Pop-outs that stack (application detail -> tile pop-out -> control)
+// only react to Esc when they are on top, so Esc closes one layer.
+export function isTopmostDialog(el: Element | null): boolean {
+  if (!el) return false;
+  const dialogs = document.querySelectorAll('[aria-modal="true"]');
+  return dialogs[dialogs.length - 1] === el;
 }

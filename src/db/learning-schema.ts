@@ -1,4 +1,5 @@
 import {
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -68,3 +69,47 @@ export const clientReferenceLearnings = pgTable(
     respondedAt: timestamp("responded_at", { withTimezone: true }),
   }
 );
+
+// Basic, application-specific documentation researched from the
+// product vendor's OFFICIAL documentation sites only (see
+// services/platformDocs.ts) and stored so it is reused by every
+// application on the same product -- the internet is only consulted
+// when nothing usable is stored yet or the stored copy has expired.
+// One row per product (e.g. "salesforce"); application names that
+// resolved to it are kept in `aliases`. Lives in the learning
+// database because it is shared knowledge, not per-application data.
+export type PlatformDocFact = {
+  topic: string;
+  fact: string;
+  sourceUrl: string;
+};
+
+export type PlatformDocSource = {
+  url: string;
+  title: string;
+};
+
+export const platformReferences = pgTable("platform_references", {
+  // Normalized product name, or "unidentified:<app name>" when the
+  // application could not be matched to a documented product.
+  id: text("id").primaryKey(),
+
+  productName: text("product_name").notNull(),
+  vendor: text("vendor").notNull().default(""),
+  officialDomains: jsonb("official_domains").$type<string[]>().notNull().default([]),
+  // Normalized application names that resolved to this product.
+  aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+
+  // "researched" | "no_public_docs" | "failed"
+  status: text("status").notNull(),
+  summary: text("summary").notNull().default(""),
+  facts: jsonb("facts").$type<PlatformDocFact[]>().notNull().default([]),
+  sources: jsonb("sources").$type<PlatformDocSource[]>().notNull().default([]),
+  // Why there are no docs / what failed -- shown to the user.
+  note: text("note").notNull().default(""),
+  model: text("model").notNull().default(""),
+
+  researchedAt: timestamp("researched_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});

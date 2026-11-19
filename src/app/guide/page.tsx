@@ -810,8 +810,8 @@ export default function GuidePage() {
             />
             <FunctionCard
               tone="violet"
-              title="Access & Credentials Profile"
-              description="Rolls up every 'Access' checklist item across all of an application's controls into one place -- the permission sets already asked for or already held, so they can be lined up against one shared credential for pulling real-time data straight from the application."
+              title="Access requests"
+              description="Every 'Access' checklist item across all of an application's controls in one list -- each one marked Open or Granted and tagged with the control it is for, filterable and copyable as a ready-to-send list -- so they can be lined up against one shared, read-only credential for pulling data straight from the application."
             />
           </div>
         </section>

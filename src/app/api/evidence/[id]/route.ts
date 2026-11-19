@@ -29,6 +29,10 @@ export async function DELETE(
     await unlink(
       path.join(process.cwd(), deleted.storagePath)
     );
+    // Its cached data profile (services/dataProfile.ts), if any.
+    await unlink(
+      path.join(process.cwd(), `${deleted.storagePath}.profile.json`)
+    ).catch(() => {});
   } catch (error) {
     // The DB row is already gone -- a missing file on disk (already
     // deleted, moved, or never written) shouldn't block the delete

@@ -32,7 +32,11 @@ export type ControlTypeCoverage = {
   key: string;
   title: string;
   isCode: boolean;
+  // Distinct applications with this control type...
   apps: number;
+  // ...and the controls themselves (an application can have more than
+  // one control under the same code). Ratios below are per control.
+  controls: number;
   completed: number;
   withEvidence: number;
   withTesting: number;
@@ -74,9 +78,11 @@ export function computeExecutiveMetrics(applications: Application[]) {
   // Coverage per control type, in the fixed client reference order
   // (IS02 ... OP23), then any other types alphabetically.
   const byKey = new Map<string, ComplianceControl[]>();
-  for (const c of controls) {
+  const appsByKey = new Map<string, Set<string>>();
+  for (const { application, control: c } of pairs) {
     const k = controlTypeKey(c);
     byKey.set(k, [...(byKey.get(k) ?? []), c]);
+    appsByKey.set(k, (appsByKey.get(k) ?? new Set()).add(application.id));
   }
   const refOrder = CLIENT_REFERENCE_TABLE.map((e) => e.code);
   const rank = (k: string) => (refOrder.includes(k) ? refOrder.indexOf(k) : refOrder.length);
@@ -90,7 +96,8 @@ export function computeExecutiveMetrics(applications: Application[]) {
         key,
         title: ref ? list[0].name || ref.title : key,
         isCode: !!ref,
-        apps: list.length,
+        apps: appsByKey.get(key)?.size ?? 0,
+        controls: list.length,
         completed: list.filter((c) => c.controlStatus === "Completed").length,
         withEvidence: u.filter((x) => x.evidence.uploaded).length,
         withTesting: u.filter((x) => x.testing.uploaded).length,
@@ -148,8 +155,8 @@ export function executiveNarrative(m: ExecutiveMetrics): NarrativeLine[] {
     .sort((a, b) => pct(b.tasks.done, b.tasks.total) - pct(a.tasks.done, a.tasks.total))
     .slice(0, 2);
   const gaps = m.byType
-    .filter((t) => t.apps > 0 && t.withTesting < t.apps)
-    .sort((a, b) => a.withTesting / a.apps - b.withTesting / b.apps)
+    .filter((t) => t.controls > 0 && t.withTesting < t.controls)
+    .sort((a, b) => a.withTesting / a.controls - b.withTesting / b.controls)
     .slice(0, 2);
   const b = (text: string | number) => ({ text: String(text), bold: true });
   const t = (text: string) => ({ text });
@@ -180,7 +187,7 @@ export function executiveNarrative(m: ExecutiveMetrics): NarrativeLine[] {
         t(" not started; "),
         b(m.fullyUploaded),
         t(` of ${m.controls} have both evidence and testing data uploaded.`),
-        t(gaps.length ? ` Biggest testing data gaps: ${gaps.map((x) => `${typeLabel(x)} (${x.withTesting}/${x.apps})`).join(", ")}.` : ""),
+        t(gaps.length ? ` Biggest testing data gaps: ${gaps.map((x) => `${typeLabel(x)} (${x.withTesting}/${x.controls})`).join(", ")}.` : ""),
       ],
     },
     {

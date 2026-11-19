@@ -331,11 +331,7 @@ export default function Home() {
                   <ChatPanel
                     messages={messages}
                     onSend={handleSend}
-                    assistantMessage={
-                      isProcessing
-                        ? `Working on: "${processingSummary}"`
-                        : undefined
-                    }
+                    pendingRequest={isProcessing ? processingSummary : undefined}
                     onAttachEvidence={(
                       kind
                     ) =>

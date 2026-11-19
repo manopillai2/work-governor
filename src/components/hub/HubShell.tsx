@@ -16,20 +16,34 @@ import ChatPanel from "@/components/ChatPanel";
 import { useAppState } from "@/components/AppStateProvider";
 import type { ProgressTileKey } from "@/components/ProgressSummary";
 import ThemeToggle from "@/components/ThemeToggle";
+import OnboardingModal from "./OnboardingModal";
+import ProductTour, { readTourStep } from "./ProductTour";
+import { readinessCounts } from "@/services/readiness";
+import AssistantTaskModal, { type AssistantTask } from "./AssistantTaskModal";
 import { useExecutiveSummaryPreview } from "@/components/ExecutiveSummaryPreview";
 import {
   I,
   Icon,
   SegBar,
   T,
-  evidenceNotes,
-  sourceFiles,
   taskParts,
   taskStats,
 } from "./hubUi";
 
 // ---------- assistant drawer context ----------
-const HubChatContext = createContext<{ openChat: () => void }>({ openChat: () => {} });
+// openOnboarding opens the application onboarding pop-out (new app,
+// or new controls for the given existing application).
+// runTask runs a one-click assistant action (prep email, uploads, ...)
+// in a result pop-up instead of the drawer. Undefined outside the New
+// UI shell, where callers fall back to sending straight to the chat.
+const HubChatContext = createContext<{
+  openChat: () => void;
+  openOnboarding: (applicationId?: string) => void;
+  runTask?: (task: AssistantTask) => void;
+}>({
+  openChat: () => {},
+  openOnboarding: () => {},
+});
 export const useHubChat = () => useContext(HubChatContext);
 
 type Progress = ReturnType<typeof useAppState>["progress"];
@@ -39,8 +53,20 @@ function Kpis({ progress, onTile }: { progress: Progress; onTile: (k: ProgressTi
   const { applications } = useAppState();
   const controls = applications.flatMap((a) => a.controls);
   const s = taskStats(controls);
-  const notes = controls.flatMap(evidenceNotes);
-  const files = sourceFiles(notes);
+  // Readiness profiles (services/readiness.ts): built from the evidence
+  // checked against the full testing data.
+  const profiles = controls.filter((c) => c.readinessProfile);
+  const counts = profiles.map((c) => readinessCounts(c.readinessProfile!));
+  const verified = counts.reduce((n, c) => n + c.verified, 0);
+  const applicable = counts.reduce((n, c) => n + c.applicable, 0);
+  const r = {
+    built: profiles.length,
+    percent: applicable ? Math.round((verified / applicable) * 100) : 0,
+    sufficient: profiles.filter((c) => c.readinessProfile!.sufficiency.verdict === "sufficient").length,
+    conflicts: counts.reduce((n, c) => n + c.conflict, 0),
+    conflictControls: counts.filter((c) => c.conflict > 0).length,
+    stale: profiles.filter((c) => c.readinessStale).length,
+  };
   const missingContext = applications.filter((a) => a.contextStatus !== "Complete").length;
 
   const cell = "flex flex-col justify-center px-4 py-2 text-left transition hover:bg-[#f7f9fb]";
@@ -48,7 +74,7 @@ function Kpis({ progress, onTile }: { progress: Progress; onTile: (k: ProgressTi
   const sub = "text-[11.5px]";
 
   return (
-    <div className="grid grid-cols-2 overflow-hidden rounded-b-[10px] border border-t-0 lg:grid-cols-[1fr_1fr_2fr_1fr_1fr]" style={{ background: T.card, borderColor: T.border }}>
+    <div data-tour="kpis" className="grid grid-cols-2 overflow-hidden rounded-b-[10px] border border-t-0 lg:grid-cols-[1fr_1fr_2fr_1fr_1fr]" style={{ background: T.card, borderColor: T.border }}>
       <button type="button" className={cell} onClick={() => onTile("applications")}>
         <span className="text-[12.5px]" style={{ color: T.text }}>Applications</span>
         <span className={big} style={{ color: T.text }}>{progress.applications}</span>
@@ -69,16 +95,30 @@ function Kpis({ progress, onTile }: { progress: Progress; onTile: (k: ProgressTi
         </span>
       </div>
 
-      <button type="button" className={`${cell} border-l`} style={{ borderColor: T.divider }} onClick={() => onTile("fullyUploaded")} title="Controls with both evidence and testing data uploaded">
-        <span className="flex items-center justify-between text-[12.5px]" style={{ color: T.text }}>Evidence + testing data <Icon d={I.arrow} size={12} color={T.faint} /></span>
-        <span className={big} style={{ color: T.text }}>{progress.fullyUploaded}</span>
-        <span className={sub} style={{ color: T.muted }}>of {progress.controls} controls · {progress.completed} completed</span>
-      </button>
+      <div
+        data-tour="kpi-readiness"
+        className="flex flex-col justify-center border-l px-4 py-2"
+        style={{ borderColor: T.divider }}
+        title="Share of readiness-profile items (identities, policy layers, access...) that the real testing data verifies, across every control with a profile. Build profiles from an application's View details → Work progress."
+      >
+        <span className="text-[12.5px]" style={{ color: T.text }}>Verified by real data</span>
+        <span className={big} style={{ color: r.built ? T.text : T.faint }}>{r.built ? `${r.percent}%` : "—"}</span>
+        <span className={sub} style={{ color: T.muted }}>
+          {r.built} of {controls.length} controls profiled{r.built ? ` · ${r.sufficient} data-sufficient` : ""}
+        </span>
+      </div>
 
-      <div className="flex flex-col justify-center border-l px-4 py-2" style={{ borderColor: T.divider }}>
-        <span className="text-[12.5px]" style={{ color: T.text }}>Evidence notes</span>
-        <span className={big} style={{ color: T.text }}>{notes.length}</span>
-        <span className={sub} style={{ color: T.muted }}>from {files.length} source files</span>
+      <div
+        data-tour="kpi-conflicts"
+        className="flex flex-col justify-center border-l px-4 py-2"
+        style={{ borderColor: T.divider }}
+        title="Readiness items where the real data contradicts what the evidence claims -- the findings auditors and application teams most need to see."
+      >
+        <span className="text-[12.5px]" style={{ color: T.text }}>Evidence vs. data conflicts</span>
+        <span className={big} style={{ color: r.conflicts ? T.red : r.built ? T.text : T.faint }}>{r.built ? r.conflicts : "—"}</span>
+        <span className={sub} style={{ color: r.stale ? T.orange : T.muted }}>
+          {r.built ? (r.stale ? `${r.stale} profile${r.stale === 1 ? "" : "s"} need a rebuild (new uploads)` : `across ${r.conflictControls} control${r.conflictControls === 1 ? "" : "s"}`) : "build a readiness profile to see"}
+        </span>
       </div>
     </div>
   );
@@ -179,6 +219,12 @@ export default function HubShell({ title, progress, children }: { title: string;
     applyQuickFilter,
   } = useAppState();
   const [chatOpen, setChatOpen] = useState(false);
+  // null = closed; otherwise the pre-selected application ("" for none).
+  const [onboarding, setOnboarding] = useState<string | null>(null);
+  // Product tour step; resumes after the tour moves to another page
+  // (HubShell only mounts on the client, so reading storage here is safe).
+  const [tourStep, setTourStep] = useState<number | null>(readTourStep);
+  const [task, setTask] = useState<{ id: number; task: AssistantTask } | null>(null);
   const { openPreview, previewModal } = useExecutiveSummaryPreview();
   // Remembered per browser. HubShell only ever mounts on the client
   // (the UI mode comes from localStorage after hydration), so reading
@@ -212,7 +258,7 @@ export default function HubShell({ title, progress, children }: { title: string;
   const sectionLabel = "px-2 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em]";
 
   return (
-    <HubChatContext.Provider value={{ openChat: () => setChatOpen(true) }}>
+    <HubChatContext.Provider value={{ openChat: () => setChatOpen(true), openOnboarding: (id) => setOnboarding(id ?? ""), runTask: (t) => setTask({ id: Date.now(), task: t }) }}>
       <div className="flex h-screen w-screen overflow-hidden" style={{ background: T.canvas, color: T.text }}>
         {/* Sidebar */}
         <aside
@@ -233,7 +279,7 @@ export default function HubShell({ title, progress, children }: { title: string;
             </Link>
           </div>
 
-          <nav className={`flex-1 overflow-y-auto border-t pt-3 ${collapsed ? "px-1.5" : "px-2"}`} style={{ borderColor: T.border }}>
+          <nav data-tour="nav" className={`flex-1 overflow-y-auto border-t pt-3 ${collapsed ? "px-1.5" : "px-2"}`} style={{ borderColor: T.border }}>
             {[
               {
                 // The three working views, broad to detailed.
@@ -329,10 +375,17 @@ export default function HubShell({ title, progress, children }: { title: string;
             <span className="text-[15px]" style={{ color: T.faint }}>/</span>
             <span className="truncate text-[14.5px] font-medium" style={{ color: T.text }}>{title}</span>
             <div className="ml-auto flex shrink-0 items-center gap-4">
-              <Link href="/guide" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px] font-medium" style={{ background: T.tealSoft, color: T.teal }}>
+              <button
+                type="button"
+                data-tour="tour-button"
+                onClick={() => setTourStep(0)}
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px] font-medium"
+                style={{ background: T.tealSoft, color: T.teal }}
+                title="A one-minute guided tour of the app"
+              >
                 <Icon d={I.play} size={11} /> Take the tour
-              </Link>
-              <span title={isProcessing ? `Working on: ${processingSummary}` : "No background work running"} className="relative">
+              </button>
+              <span title={isProcessing ? "The assistant is working on your request" : "No background work running"} className="relative">
                 <Icon d={I.bell} size={18} color={T.muted} />
                 {isProcessing ? <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ background: T.orange }} /> : null}
               </span>
@@ -354,7 +407,7 @@ export default function HubShell({ title, progress, children }: { title: string;
 
           {/* app-canvas-bg/bg-slate-950/text-slate-100 keep the existing
               components' inherited colours mapped by globals.css */}
-          <main className="app-canvas-bg flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-950 text-slate-100">
+          <main data-tour="main" className="app-canvas-bg flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-950 text-slate-100">
             {progress ? (
               <div className="shrink-0 px-4">
                 <Kpis progress={progress} onTile={handleTile} />
@@ -377,7 +430,7 @@ export default function HubShell({ title, progress, children }: { title: string;
                 <ChatPanel
                   messages={messages}
                   onSend={handleSend}
-                  assistantMessage={isProcessing ? `Working on: "${processingSummary}"` : undefined}
+                  pendingRequest={isProcessing ? processingSummary : undefined}
                   onAttachEvidence={(kind) => openEvidenceModal(kind)}
                 />
               </div>
@@ -386,6 +439,7 @@ export default function HubShell({ title, progress, children }: { title: string;
         ) : (
           <button
             type="button"
+            data-tour="assistant"
             onClick={() => setChatOpen(true)}
             className="fixed bottom-4 right-4 z-30 flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-medium shadow-lg"
             style={{ background: T.teal, color: "#fff" }}
@@ -396,6 +450,11 @@ export default function HubShell({ title, progress, children }: { title: string;
         )}
       </div>
       {previewModal}
+      {onboarding !== null ? (
+        <OnboardingModal initialApplicationId={onboarding || undefined} onClose={() => setOnboarding(null)} />
+      ) : null}
+      {tourStep !== null ? <ProductTour initialStep={tourStep} onClose={() => setTourStep(null)} /> : null}
+      {task ? <AssistantTaskModal key={task.id} initialTask={task.task} onClose={() => setTask(null)} /> : null}
     </HubChatContext.Provider>
   );
 }

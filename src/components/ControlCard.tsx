@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -51,7 +52,7 @@ const GAP_ANALYSIS_MARKDOWN_COMPONENTS: Components =
       </p>
     ),
     ul: ({ children }) => (
-      <ul className="mb-2 list-disc space-y-1 pl-5 text-sm text-indigo-800 last:mb-0">
+      <ul className="mb-2 list-disc space-y-1 pl-5 text-sm text-indigo-800 last:mb-0 [&_ul]:mb-0 [&_ul]:mt-0.5 [&_ul]:list-[circle] [&_ul]:space-y-0 [&_ul]:text-[13px] [&_ul]:text-indigo-700">
         {children}
       </ul>
     ),
@@ -122,6 +123,9 @@ type ControlCardProps = {
   onPrepEmail: () => void;
   onShowQuestions: () => void;
   onRefreshEvidenceDataGapAnalysis?: () => void;
+  // New UI only: upload for just this control from the menu.
+  onUploadEvidence?: () => void;
+  onUploadData?: () => void;
 
   onApproveChecklist: () => void;
   onRequestChecklistRevision: () => void;
@@ -133,6 +137,16 @@ type ControlCardProps = {
   // source of truth above the individual cards.
   expanded: boolean;
   onToggleExpanded: () => void;
+
+  // High-level read on the work so far (assistant-maintained), shown
+  // at the top of the expanded card.
+  progressSummary?: string;
+};
+
+// Display names for checklist groups; the stored category values stay
+// the same (the assistant and existing checklists use them).
+const CATEGORY_LABEL: Partial<Record<TaskCategory, string>> = {
+  "Argos Design": "Rule logic",
 };
 
 const CATEGORY_ORDER: TaskCategory[] = [
@@ -179,12 +193,15 @@ export default function ControlCard({
   onPrepEmail,
   onShowQuestions,
   onRefreshEvidenceDataGapAnalysis,
+  onUploadEvidence,
+  onUploadData,
   onApproveChecklist,
   onRequestChecklistRevision,
   onCompleteControl,
 
   expanded,
   onToggleExpanded,
+  progressSummary = "",
 }: ControlCardProps) {
   const [menuOpen, setMenuOpen] =
     useState(false);
@@ -537,6 +554,33 @@ export default function ControlCard({
                       Show Questions
                     </button>
 
+                    {onUploadEvidence || onUploadData ? (
+                      <>
+                        <div className="my-1 border-t border-slate-100" />
+                        {[
+                          { label: "Upload Evidence", run: onUploadEvidence },
+                          { label: "Upload Testing Data", run: onUploadData },
+                        ].map((item) =>
+                          item.run ? (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={() => {
+                                setMenuOpen(false);
+                                item.run?.();
+                              }}
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                                <path d="M12 16V4M7 9l5-5 5 5M5 20h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                              {item.label}
+                            </button>
+                          ) : null
+                        )}
+                      </>
+                    ) : null}
+
                     <div className="my-1 border-t border-slate-100" />
 
                     <button
@@ -586,6 +630,18 @@ export default function ControlCard({
           <div
             className={`space-y-2 border-t border-slate-200 p-3`}
           >
+            <WorkProgressBlock
+              progressSummary={progressSummary}
+              controlStatus={controlStatus}
+              stage={stage}
+              completedTasks={completedTasks}
+              totalTasks={totalTasks}
+              currentFocus={currentFocus}
+              notes={notes}
+              nextTasks={nextTasks}
+              checklistChangeLog={checklistChangeLog}
+            />
+
             <CollapsibleSection
             title="Evidence vs. Testing Data Gap Analysis"
             description="Where attached evidence and uploaded testing data agree, and what testing data is still missing to independently back up the evidence."
@@ -708,7 +764,7 @@ export default function ControlCard({
                 {groupedTasks.map((group) => (
                   <div key={group.category}>
                     <h6 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      {group.category}
+                      {CATEGORY_LABEL[group.category] ?? group.category}
                     </h6>
 
                     <div className="space-y-2">
@@ -1030,6 +1086,19 @@ function ChecklistTaskRow({
                 </span>
               ) : null}
 
+              {task.references?.map((url, i) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700 underline-offset-2 hover:underline"
+                  title={`Official documentation: ${url}`}
+                >
+                  {task.references && task.references.length > 1 ? `Doc ${i + 1}` : "Doc"}
+                </a>
+              ))}
+
               {task.irrelevant ? (
                 <span
                   className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700"
@@ -1158,5 +1227,76 @@ function ChecklistTaskRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// "Work progress" at the top of an opened control: the assistant's
+// running summary of where this control stands, plus the key facts
+// (status, stage, checklist progress, uploads, last activity) at a
+// glance.
+function WorkProgressBlock({
+  progressSummary,
+  controlStatus,
+  stage,
+  completedTasks,
+  totalTasks,
+  currentFocus,
+  notes,
+  nextTasks,
+  checklistChangeLog,
+}: {
+  progressSummary: string;
+  controlStatus: ControlStatus;
+  stage: WorkflowStage;
+  completedTasks: number;
+  totalTasks: number;
+  currentFocus: string;
+  notes: Note[];
+  nextTasks: ChecklistTask[];
+  checklistChangeLog: ChecklistChangeLogEntry[];
+}) {
+  const pct = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const times = [
+    ...notes.map((n) => n.createdAt),
+    ...nextTasks.flatMap((t) => t.notes.map((n) => n.createdAt)),
+    ...checklistChangeLog.map((e) => e.timestamp),
+  ]
+    .map((v) => new Date(v).getTime())
+    .filter((t) => !Number.isNaN(t));
+  const last = times.length ? new Date(Math.max(...times)) : null;
+
+  const fact = (label: string, value: ReactNode) => (
+    <div className="min-w-0">
+      <dt className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[#6b7684]">{label}</dt>
+      <dd className="mt-0.5 truncate text-[13px] font-medium text-[#1b2430]">{value}</dd>
+    </div>
+  );
+
+  return (
+    <section className="rounded-lg border border-[#cfe6ea] bg-[#f1f8f9] p-4">
+      <h5 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#0f7d8c]">
+        <span className="h-3 w-[3px] rounded-full bg-[#0f7d8c]" /> Work progress
+      </h5>
+      <p className={`mt-2 text-[13.5px] leading-6 ${progressSummary && progressSummary !== "No work notes captured yet." ? "text-[#1b2430]" : "text-[#6b7684]"}`}>
+        {progressSummary || "No work notes captured yet."}
+      </p>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-5">
+        {fact("Status", controlStatus)}
+        {fact("Stage", stage)}
+        {fact(
+          "Checklist",
+          <span className="flex items-center gap-2">
+            <span>
+              {completedTasks}/{totalTasks}
+            </span>
+            <span className="h-1.5 w-12 overflow-hidden rounded-full bg-[#dfe4ea]">
+              <span className="block h-full rounded-full bg-[#0f8a5f]" style={{ width: `${pct}%` }} />
+            </span>
+          </span>
+        )}
+        {fact("Current focus", currentFocus)}
+        {fact("Last activity", last ? last.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—")}
+      </dl>
+    </section>
   );
 }

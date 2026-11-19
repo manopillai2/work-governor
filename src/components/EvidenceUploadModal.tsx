@@ -22,6 +22,10 @@ export type EvidenceUploadResult = {
 type EvidenceUploadModalProps = {
   kind: EvidenceKind;
   applications: Application[];
+  // Pre-selected from where the upload was started (an application's
+  // detail view or one control).
+  initialApplicationId?: string;
+  initialControlName?: string;
   onClose: () => void;
   onUploaded: (
     result: EvidenceUploadResult
@@ -34,16 +38,27 @@ const ACCEPTED_EXTENSIONS =
 export default function EvidenceUploadModal({
   kind,
   applications,
+  initialApplicationId,
+  initialControlName,
   onClose,
   onUploaded,
 }: EvidenceUploadModalProps) {
   const [applicationId, setApplicationId] =
-    useState(applications[0]?.id ?? "");
+    useState(
+      initialApplicationId &&
+        applications.some(
+          (application) =>
+            application.id ===
+            initialApplicationId
+        )
+        ? initialApplicationId
+        : applications[0]?.id ?? ""
+    );
   const [scope, setScope] = useState<
     "all" | "selected"
-  >("all");
+  >(initialControlName ? "selected" : "all");
   const [controlName, setControlName] =
-    useState("");
+    useState(initialControlName ?? "");
   const [files, setFiles] = useState<File[]>(
     []
   );

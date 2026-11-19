@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { desc, eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { db } from "@/db/client";
 import { learningDb } from "@/db/learning-client";
@@ -9,6 +9,16 @@ import {
   learnings,
 } from "@/db/learning-schema";
 import { evidenceDocuments } from "@/db/schema";
+import { summarizeReadinessForPrompt } from "@/services/readiness";
+import {
+  formatReferencesForPrompt,
+  getStoredReferences,
+  keepKnownUrls,
+  referenceUrls,
+  resolvePlatformReference,
+  type ApplicationDocsInput,
+  type PlatformReference,
+} from "@/services/platformDocs";
 import {
   CLIENT_REFERENCE_TABLE,
   formatClientReferenceEntry,
@@ -36,6 +46,17 @@ const anthropic = new Anthropic({
   apiKey:
     process.env.ANTHROPIC_API_KEY,
 });
+
+// The client company's real name is configuration, not code: set
+// CLIENT_COMPANY_NAME in .env.local (never committed) so it stays out of
+// source control. It's fixed per process, so the cached system prompt
+// below stays identical across requests.
+const CLIENT_COMPANY_NAME =
+  process.env.CLIENT_COMPANY_NAME?.trim() || "";
+const COMPANY_NAME_RULE = CLIENT_COMPANY_NAME
+  ? `The real company name in uploaded evidence/data is "${CLIENT_COMPANY_NAME}" (any
+casing, any form -- with or without a suffix such as "Energy", possessives, etc.). Whenever you`
+  : `Uploaded evidence/data may name the client company itself. Whenever you`;
 
 type ChatHistoryItem = {
   role: "user" | "assistant";
@@ -276,11 +297,14 @@ ${control.applicabilityRationale || "Not defined"}
 Evidence Strategy:
 ${control.evidenceStrategy || "Not defined"}
 
-Argos Objective (Argos Rule Logic):
+Argos Objective (shown to the user as "Rule logic"):
 ${control.argosObjective || "Not defined"}
 
 Evidence vs. Testing Data Gap Analysis (control-level):
 ${control.evidenceDataGapAnalysis || "Not yet analyzed."}
+
+Readiness Profile (evidence vs. full real data${control.readinessStale ? "; NEW UPLOADS SINCE IT WAS BUILT" : ""}):
+${summarizeReadinessForPrompt(control.readinessProfile)}
 
 Work Notes (control-level):
 ${notes}
@@ -426,7 +450,130 @@ type EvidenceRow = {
   extractedText: string;
   truncated: boolean;
   uploadedAt: Date;
+  id?: string;
+  scope?: string;
+  controlNames?: unknown;
 };
+
+// ---------- request focus (token budget) ----------
+// Every request used to carry every application in full and the
+// newest documents from any application. Now: the applications this
+// turn is about (named in the message or the last few chat turns, by
+// name/ID or by one of their control names) go in full, the rest as a
+// one-line index; documents are limited to the focused applications,
+// with the focused controls' documents first. When nothing is named
+// (a new application, a general question) everything goes in full, as
+// before -- correctness over savings.
+
+type RequestFocus = {
+  applicationIds: Set<string>;
+  controlNames: Set<string>;
+};
+
+function normalizeForMatch(value: string): string {
+  return ` ${value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+}
+
+function findFocus(
+  applications: Application[],
+  message: string,
+  history: ChatHistoryItem[]
+): RequestFocus {
+  const haystack = normalizeForMatch(
+    [
+      message,
+      ...history
+        .slice(-4)
+        .map((item) => String(item.content ?? "")),
+    ].join(" ")
+  );
+  const applicationIds = new Set<string>();
+  const controlNames = new Set<string>();
+
+  for (const application of applications) {
+    const names = [application.name, application.id]
+      .map((n) => normalizeForMatch(n ?? ""))
+      .filter((n) => n.trim().length >= 3);
+    if (names.some((n) => haystack.includes(n))) {
+      applicationIds.add(application.id);
+    }
+    for (const control of application.controls) {
+      const n = normalizeForMatch(control.name);
+      if (n.trim().length >= 6 && haystack.includes(n)) {
+        applicationIds.add(application.id);
+        controlNames.add(control.name);
+      }
+    }
+  }
+
+  return { applicationIds, controlNames };
+}
+
+function summarizeApplicationIndex(
+  applications: Application[]
+): string {
+  return applications
+    .map(
+      (application) =>
+        `- ${application.name} (ID: ${application.id}; hosting: ${application.hosting || "unknown"}; context: ${application.contextStatus}) -- controls: ${
+          application.controls.length > 0
+            ? application.controls
+                .map(
+                  (control) =>
+                    `${control.name} [${control.framework}, ${control.controlStatus}]`
+                )
+                .join("; ")
+            : "none"
+        }`
+    )
+    .join("\n");
+}
+
+function summarizeApplicationsForRequest(
+  applications: Application[],
+  focus: RequestFocus
+): string {
+  if (focus.applicationIds.size === 0) {
+    return summarizeApplications(applications);
+  }
+  const focused = applications.filter((a) =>
+    focus.applicationIds.has(a.id)
+  );
+  const others = applications.filter(
+    (a) => !focus.applicationIds.has(a.id)
+  );
+  return `${summarizeApplications(focused)}${
+    others.length > 0
+      ? `\n\nOTHER APPLICATIONS (index only -- this turn is about the application(s) above, so these are listed without their checklists, notes or context. If the request actually needs one of these in detail, use RESPOND_ONLY and ask the user to name it explicitly so its full data is included next turn):\n${summarizeApplicationIndex(others)}`
+      : ""
+  }`;
+}
+
+function prioritizeEvidence(
+  rows: EvidenceRow[],
+  focus: RequestFocus,
+  excludeIds: Set<string>
+): EvidenceRow[] {
+  const kept = rows.filter(
+    (row) =>
+      !(row.id && excludeIds.has(row.id)) &&
+      (focus.applicationIds.size === 0 ||
+        focus.applicationIds.has(row.applicationId))
+  );
+  if (focus.controlNames.size === 0) return kept;
+  // Documents for the named control(s) first, then application-wide
+  // ones, then the rest; newest first within each group (rows arrive
+  // newest first and the sort is stable).
+  const rank = (row: EvidenceRow) => {
+    const names = Array.isArray(row.controlNames)
+      ? (row.controlNames as unknown[])
+      : [];
+    if (names.some((n) => typeof n === "string" && focus.controlNames.has(n))) return 0;
+    if (row.scope === "all") return 1;
+    return 2;
+  };
+  return [...kept].sort((a, b) => rank(a) - rank(b));
+}
 
 // Combined text budget across every stored document, since this gets
 // added to every request regardless of relevance. Newest documents
@@ -496,7 +643,7 @@ function formatEvidenceArchive(
 // prone) -- it specifically looks for the same base name the model
 // just used, followed by a different parenthetical suffix elsewhere
 // in the same message (the exact pattern real bulk GRC exports use,
-// e.g. "... - Salesforce (CXT)" and "... - Salesforce (Dynegy)" in
+// e.g. "... - Salesforce (CXT)" and "... - Salesforce (EU)" in
 // one paste). Only fires on that specific, recognizable shape.
 function detectSiblingApplicationCandidates(
   message: string,
@@ -605,11 +752,83 @@ function sanitizeTaskInputs(
       learningId: isNonEmptyString(task.learningId)
         ? (task.learningId as string)
         : undefined,
+      // Validated against the platform references shown this turn
+      // after the command is built (keepKnownTaskReferences).
+      references: Array.isArray(task.references)
+        ? (task.references as unknown[]).filter(isNonEmptyString)
+        : undefined,
     }));
 
   return sanitized.length > 0
     ? sanitized
     : undefined;
+}
+
+// Actions that build checklists, control context or gap analysis --
+// the ones grounded in a platform documentation reference.
+const PLATFORM_DOCS_ACTIONS = new Set([
+  "CREATE_APPLICATION",
+  "UPDATE_APPLICATION_CONTEXT",
+  "ADD_CONTROL",
+  "REGENERATE_CONTROL_CHECKLIST",
+  "GENERATE_CONTEXTUAL_CHECKLISTS",
+  "UPDATE_EVIDENCE_DATA_GAP_ANALYSIS",
+]);
+
+// The application (name + context) a command is about, for resolving
+// its platform documentation reference.
+function platformDocsTarget(
+  input: ClaudeCommandInput,
+  applications: Application[]
+): ApplicationDocsInput | null {
+  if (!PLATFORM_DOCS_ACTIONS.has(input.action)) return null;
+  const payload = input.payload ?? {};
+  const ref = String(payload.application ?? "").trim();
+  const norm = (v: string) => normalizeForMatch(v).trim();
+  const existing =
+    applications.find(
+      (a) => a.id === ref || (ref && norm(a.name) === norm(ref))
+    ) ?? (applications.length === 1 && !ref ? applications[0] : undefined);
+  const name = existing?.name ?? ref;
+  if (!name) return null;
+  const context = payload.context ?? {};
+  return {
+    name,
+    hosting: payload.hosting || existing?.hosting,
+    applicationPurpose:
+      context.applicationPurpose || existing?.applicationPurpose,
+    hostingDetails: context.hostingDetails || existing?.hostingDetails,
+    integrations: context.integrations?.length
+      ? context.integrations
+      : existing?.integrations,
+    identityTypes: context.identityTypes?.length
+      ? context.identityTypes
+      : existing?.identityTypes,
+  };
+}
+
+// Strip any citation that isn't a source of a reference shown this
+// turn, on every task-like object (has text + references) in a payload.
+function keepKnownTaskReferences(
+  value: unknown,
+  known: Map<string, string>
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) keepKnownTaskReferences(item, known);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  const obj = value as Record<string, unknown>;
+  if ("references" in obj && typeof obj.text === "string") {
+    const kept = keepKnownUrls(obj.references, known);
+    if (kept.length) obj.references = kept;
+    else delete obj.references;
+  }
+  for (const child of Object.values(obj)) {
+    if (child && typeof child === "object") {
+      keepKnownTaskReferences(child, known);
+    }
+  }
 }
 
 export async function POST(
@@ -639,6 +858,25 @@ export async function POST(
       "number"
         ? body.historyOmittedCount
         : 0;
+
+    // Documents whose text is already inline in this message (a fresh
+    // upload) -- left out of the archive so they aren't sent twice.
+    const excludeEvidenceIds = new Set<string>(
+      Array.isArray(body.excludeEvidenceIds)
+        ? (body.excludeEvidenceIds as unknown[]).filter(
+            (id): id is string =>
+              typeof id === "string"
+          )
+        : []
+    );
+
+    // Which applications / controls this turn is about, so only those
+    // are sent in full (see findFocus).
+    const focus = findFocus(
+      applications,
+      message,
+      history
+    );
 
     if (!message) {
       return NextResponse.json(
@@ -730,8 +968,12 @@ export async function POST(
     try {
       const evidenceRows = await db
         .select({
+          id: evidenceDocuments.id,
           applicationId:
             evidenceDocuments.applicationId,
+          scope: evidenceDocuments.scope,
+          controlNames:
+            evidenceDocuments.controlNames,
           filename: evidenceDocuments.filename,
           kind: evidenceDocuments.kind,
           extractedText:
@@ -747,7 +989,11 @@ export async function POST(
         );
 
       const archive = formatEvidenceArchive(
-        evidenceRows,
+        prioritizeEvidence(
+          evidenceRows,
+          focus,
+          excludeEvidenceIds
+        ),
         applications
       );
 
@@ -761,8 +1007,29 @@ export async function POST(
       );
     }
 
-    const response =
-      await anthropic.messages.create({
+    // Platform documentation reference (services/platformDocs.ts):
+    // stored references for the applications this turn is about, and
+    // for any stored product named in the message -- no internet here.
+    // A checklist-generating command for an application without one
+    // triggers research below and a second pass.
+    const focusApplications =
+      focus.applicationIds.size > 0
+        ? applications.filter((a) =>
+            focus.applicationIds.has(a.id)
+          )
+        : applications;
+    const platformRefs: PlatformReference[] =
+      await getStoredReferences(
+        focusApplications
+          .slice(0, 8)
+          .map((a) => a.name),
+        message
+      );
+
+    const callAssistant = (
+      platformDocsText: string
+    ) =>
+      anthropic.messages.create({
         model: "claude-haiku-4-5",
         // GENERATE_CONTEXTUAL_CHECKLISTS can regenerate every control on an
         // application in one response -- 6000 was tight enough to truncate
@@ -771,14 +1038,24 @@ export async function POST(
         // the safe non-streaming ceiling for this model/request shape.
         max_tokens: 16000,
 
-        system: `
+        // The system prompt and the tool definition are identical on
+        // every request (nothing per-request is interpolated into
+        // them), so they're cached: repeat requests within 5 minutes
+        // read ~20k+ tokens at ~10% of the price. Everything that
+        // varies goes in the user message, after the cache point.
+        system: [
+          {
+            type: "text",
+            cache_control: { type: "ephemeral" },
+            text: `
 You are the command interpreter and contextual compliance advisor for Control Governor.
 
 Control Governor is Manoj's personal application-control and Argos-readiness assistant.
 
 CURRENT DATE
 
-The current date is ${currentDate} in the user's Central Time zone.
+The current date (in the user's Central Time zone) is given in the
+CURRENT DATE section of the user message.
 
 PERMANENT ASSIGNMENT OBJECTIVE
 
@@ -886,8 +1163,7 @@ older documents were omitted from what is shown here for length.
 
 COMPANY NAME REDACTION
 
-The real company name in uploaded evidence/data is "Vistra" (any
-casing, any form -- "Vistra Energy", "Vistra's", etc.). Whenever you
+${COMPANY_NAME_RULE}
 write, quote, or paraphrase anything that names it -- in a note, an
 Evidence vs. Testing Data Gap Analysis, an argosObjective, a prep email, a
 progress summary, or any other output -- always write "Client"
@@ -1015,11 +1291,26 @@ call a contradiction out explicitly and plainly, do not soften it.
 be collected so it can fully replace the evidence -- the objective is
 to reach a point where every claim currently backed only by a
 screenshot or document is instead backed by an authoritative data
-pull. Phrase each bullet as the concrete gap, not a vague call to
-"collect more evidence": e.g. "LastPasswordChangeDate is not
-populated in the current export -- need a data source that actually
-tracks password change timestamps" rather than "more password data is
-needed."
+pull.
+
+Write it as scannable bullets, never sentences. Each item is a bold
+headline on its own bullet -- at most 6 words, a noun phrase naming
+the missing data itself -- with at most 2 indented sub-bullets of at
+most 8 words each: first what's wrong, then what to pull. Exact
+shape (Markdown, two-space indent for sub-bullets):
+- **<What's missing>**
+  - <what's wrong, <= 8 words>
+  - <what to pull, <= 8 words>
+Example:
+- **Password change timestamps**
+  - Empty for all 412 users in export
+  - Pull from the identity provider
+- **Terminated users list**
+  - No HR termination feed provided
+  - Request the HR leavers report
+Never a vague headline like "More data needed" or "Additional
+evidence"; no headline over 6 words; no sub-bullet over 8 words; no
+full sentences or paragraphs.
 
 If the control only has one kind (all Evidence, or all Testing Data, or
 neither), leave evidenceDataGapAnalysis out of that controlUpdate
@@ -1439,24 +1730,14 @@ CLIENT CONTROL REFERENCE CODES
 This is the reference table of the user's own internal client control
 codes. The first group is fixed and permanent. The second group was
 learned from the user's own past messages and approved by the user
-through the Learning Engine review flow -- treat it exactly the same
-as the fixed group.
+through the Learning Engine review flow -- it is listed in the
+LEARNED CLIENT CONTROL REFERENCE CODES section of the user message;
+treat it exactly the same as the fixed group.
 
 ${CLIENT_REFERENCE_TABLE.map(
   (entry) =>
     `- ${formatClientReferenceEntry(entry)}`
 ).join("\n")}
-${
-  acceptedClientReferenceEntries.length > 0
-    ? "\n" +
-      acceptedClientReferenceEntries
-        .map(
-          (entry) =>
-            `- ${entry.code} - ${entry.title}`
-        )
-        .join("\n")
-    : ""
-}
 
 Whenever creating or adding a control (CREATE_APPLICATION,
 ADD_CONTROL), check whether the user's own message -- not the control
@@ -1576,7 +1857,7 @@ spreadsheet — can describe controls for more than one distinct
 application at once. Look for more than one distinct application name
 threaded through the control titles or fields (for example
 "... - Salesforce (CXT)" partway through the message and
-"... - Salesforce (Dynegy)" later in the same message). Only one
+"... - Salesforce (EU)" later in the same message). Only one
 CREATE_APPLICATION can be returned per message, so when you detect
 more than one application's worth of data in a single message:
 
@@ -1585,7 +1866,7 @@ more than one application's worth of data in a single message:
    found in the same message that you did NOT create, and say
    plainly that you can create it next — for example "Salesforce -
    CXT was created with 6 controls. Your message also included
-   controls for Salesforce - Dynegy, which I haven't created yet —
+   controls for Salesforce - EU, which I haven't created yet —
    say the word and I'll set that up next."
 
 Never silently drop the remaining application's data without
@@ -1666,6 +1947,16 @@ objective represent. Never fabricate a reference.
 payload.clientContext follows the CLIENT CONTROL REFERENCE CODES rules
 above — only set it when the user's own message referenced one of
 those codes; otherwise leave it as an empty string.
+
+SAME CONTROL TYPE MORE THAN ONCE: one application may legitimately
+have two controls under the same client control code (for example a
+regular IS05 access review and a separate IS05 firefighter / emergency
+access review). Never silently drop, merge or rename a requested
+control because its code matches another control in the same request
+or one already on the application -- always include it in the
+command exactly as asked. The app checks for this itself and asks the
+user to confirm before creating anything, so you don't need to ask
+separately.
 
 CHECKLIST REVIEW
 
@@ -1848,7 +2139,7 @@ identified, and what is still open.
 As notes reveal real, specific information, also sharpen
 argosObjective for that control so it stays concrete rather than
 generic. Every control's argosObjective is shown to the user
-together in one Argos Rule Logic section per application, so vague
+together in one Rule logic section per application, so vague
 objectives reduce the value of that section.
 
 PROCESSING THE APPLICATION TEAM'S REPLY
@@ -2103,6 +2394,12 @@ illustrative example answer at the same depth as the question (never
 a real fact about this specific application) that shows the level of
 detail and the format expected, so the team knows how to answer well.
 
+QUESTIONS-ONLY REQUESTS: when the latest user message asks for "just
+the open questions", the app shows only payload.email.openQuestions
+and discards the rest. Build openQuestions in full exactly as above,
+but set subject, applicationSummary, applicationUse and closingNote to
+a few words each and checklistHighlights to an empty array.
+
 Every question must also include relatedControls: the exact name of
 every control (as shown in CURRENT CONTROL GOVERNOR DATA) whose gap this
 question addresses. Because questions are merged across controls
@@ -2200,6 +2497,46 @@ accepted learning against that specific control and application:
   task that did not come from an accepted learning.
 - Do not duplicate a checklist item that is already effectively present.
 
+PLATFORM DOCUMENTATION REFERENCE
+
+The user message may include PLATFORM DOCUMENTATION REFERENCE: basic,
+product-specific facts researched from the vendor's official
+documentation, each tagged with a source [D1], [D2], ... and its URL.
+It describes the product an application runs on (e.g. every
+application named "Salesforce - ..." uses the Salesforce reference).
+
+When generating or regenerating checklists, writing control context,
+or analysing evidence against data for an application with a
+reference:
+
+- Combine three inputs: your SOX / ITGC knowledge of what the control
+  must achieve, the application context the user gave (which wins
+  where it is more specific than the documentation), and the
+  documentation facts about how this product actually works.
+- Use the facts to make items product-specific -- name the product's
+  own identity types, permission constructs, settings, logs and
+  extraction APIs instead of generic wording.
+- Identity coverage is mandatory: for identity, password /
+  authentication and access controls, every identity type the
+  documentation lists -- especially non-human ones such as
+  integration / API-only users, connected apps or OAuth clients,
+  service accounts -- must be covered by at least one checklist item
+  that names it, so the evidence can't silently skip it.
+- When the application context is missing, the reference plus SOX
+  knowledge is enough to build a complete, specific checklist; add
+  Discovery items to confirm with the application team which of the
+  documented options this instance actually uses.
+- On each checklist item that relies on a documentation fact, set
+  references to the exact source URL(s) of those facts, copied from
+  the reference. Never put any other URL in references, and leave it
+  out for items that don't rely on the reference.
+- In evidence-vs-data analysis, flag where the evidence or data does
+  not cover something the documentation says exists (e.g. an identity
+  type), citing the source URL in the text.
+- If the reference says there is no official documentation for an
+  application, rely on SOX knowledge and the context, and do not cite
+  documentation.
+
 QUESTIONS AND FEEDBACK
 
 Use RESPOND_ONLY for explanations, questions, feedback, and clarification.
@@ -2218,7 +2555,7 @@ If you find it:
   pending; or: that content was in an earlier message that is no
   longer part of what you can currently see).
 - Then offer to act on it now, naming the specific thing you found —
-  for example "Want me to create Salesforce - Dynegy now?" — not a
+  for example "Want me to create Salesforce - EU now?" — not a
   generic request for the user to re-explain from scratch.
 
 Never flatly assert that something "was not referenced" or "does not
@@ -2228,12 +2565,28 @@ the conversation you no longer have visibility into, say that honestly
 (for example "I don't see that in what I currently have — could you
 paste it again?") instead of denying it outright.
 
+READINESS PROFILES
+
+A control's "Readiness Profile" (when built) was produced from the
+evidence checked against the FULL testing data files -- its counts and
+exceptions were computed by code, not estimated, so they are more
+reliable than anything you can infer from the truncated document
+excerpts in this message. Testing data is the source of truth;
+evidence describes how the team says the control is done. When
+answering about a control, prefer the profile's facts; in a
+meeting-prep email or open questions, ask for its open items and
+"Next data/access to request" (the team must grant that access to the
+monitoring service account). If it says new uploads arrived since it
+was built, mention that rebuilding it (Work progress -> Rebuild with
+latest data) will include them.
+
 HARD CONSTRAINT -- READ THIS LAST, IT OVERRIDES ANY HESITATION ABOVE
 
 If the latest user message is a request for a meeting-prep email
 (see MEETING-PREP EMAIL EXPORT), the tool call in this response MUST
 have action EXPORT_MEETING_PREP_EMAIL with payload.email fully
-filled in. A tool call with action RESPOND_ONLY, or with
+filled in (for a questions-only request, see QUESTIONS-ONLY REQUESTS:
+openQuestions in full, the other fields minimal). A tool call with action RESPOND_ONLY, or with
 payload.email missing or empty, is an incorrect response to that
 request, full stop -- it does not matter how little is known about
 the application. Do not hedge, do not ask permission, do not
@@ -2243,11 +2596,34 @@ Return exactly one execute_control_governor_command tool call.
 
 Do not return ordinary prose outside the tool call.
 `,
+          },
+        ],
 
         messages: [
           {
             role: "user",
             content: `
+CURRENT DATE
+
+${currentDate}
+
+LEARNED CLIENT CONTROL REFERENCE CODES
+
+${
+  acceptedClientReferenceEntries.length > 0
+    ? acceptedClientReferenceEntries
+        .map(
+          (entry) =>
+            `- ${entry.code} - ${entry.title}`
+        )
+        .join("\n")
+    : "- None yet"
+}
+
+PLATFORM DOCUMENTATION REFERENCE
+
+${platformDocsText || "- None stored for the applications in this message."}
+
 ACCEPTED LEARNINGS
 
 ${summarizeAcceptedLearnings(
@@ -2260,8 +2636,9 @@ ${evidenceArchiveText}
 
 CURRENT CONTROL GOVERNOR DATA
 
-${summarizeApplications(
-  applications
+${summarizeApplicationsForRequest(
+  applications,
+  focus
 )}
 
 RECENT CONVERSATION
@@ -2479,6 +2856,15 @@ ${message}
                                 learningId: {
                                   type: "string",
                                 },
+
+
+                                references: {
+
+                                  type: "array",
+
+                                  items: { type: "string" },
+
+                                },
                               },
 
                               required: [
@@ -2568,6 +2954,15 @@ ${message}
 
                                 learningId: {
                                   type: "string",
+                                },
+
+
+                                references: {
+
+                                  type: "array",
+
+                                  items: { type: "string" },
+
                                 },
                               },
 
@@ -2773,6 +3168,15 @@ ${message}
                           learningId: {
                             type: "string",
                           },
+
+
+                          references: {
+
+                            type: "array",
+
+                            items: { type: "string" },
+
+                          },
                         },
 
                         required: [
@@ -2829,6 +3233,15 @@ ${message}
                           learningId: {
                             type: "string",
                           },
+
+
+                          references: {
+
+                            type: "array",
+
+                            items: { type: "string" },
+
+                          },
                         },
 
                         required: [
@@ -2884,6 +3297,15 @@ ${message}
 
                           learningId: {
                             type: "string",
+                          },
+
+
+                          references: {
+
+                            type: "array",
+
+                            items: { type: "string" },
+
                           },
                         },
 
@@ -3110,6 +3532,15 @@ ${message}
                                 learningId: {
                                   type: "string",
                                 },
+
+
+                                references: {
+
+                                  type: "array",
+
+                                  items: { type: "string" },
+
+                                },
                               },
 
                               required: [
@@ -3217,7 +3648,93 @@ ${message}
           name:
             "execute_control_governor_command",
         },
-      });
+      },
+      // The user pressed Stop (the browser aborted the request): stop
+      // the model call too instead of paying for a reply nobody reads.
+      { signal: request.signal });
+
+    let response = await callAssistant(
+      formatReferencesForPrompt(platformRefs)
+    );
+
+    // Checklists / context / gap analysis for an application whose
+    // product has no reference in this turn: resolve one (stored copy,
+    // or research the vendor's official documentation) and, if that
+    // produced usable documentation, run the turn again with it.
+    let docsNote = "";
+    const firstCall = response.content.find(
+      (block) =>
+        block.type === "tool_use" &&
+        block.name ===
+          "execute_control_governor_command"
+    );
+    const firstInput =
+      firstCall?.type === "tool_use"
+        ? (firstCall.input as ClaudeCommandInput)
+        : undefined;
+    const docsTarget = firstInput
+      ? platformDocsTarget(
+          firstInput,
+          applications
+        )
+      : null;
+
+    if (
+      docsTarget &&
+      firstInput?.action ===
+        "UPDATE_APPLICATION_CONTEXT"
+    ) {
+      // The context may identify the product differently: re-check
+      // after responding, so the next checklist uses it.
+      after(() =>
+        resolvePlatformReference(docsTarget, {
+          reidentify: true,
+        }).then(() => undefined)
+      );
+    } else if (docsTarget) {
+      const resolved =
+        await resolvePlatformReference(
+          docsTarget
+        );
+      if (
+        resolved &&
+        !platformRefs.some(
+          (r) => r.id === resolved.id
+        )
+      ) {
+        platformRefs.push(resolved);
+        if (resolved.status === "researched") {
+          response = await callAssistant(
+            formatReferencesForPrompt(
+              platformRefs
+            )
+          );
+        }
+      }
+      if (resolved?.status === "researched") {
+        docsNote = `Grounded in ${resolved.productName} official documentation (${resolved.sources.length} source${resolved.sources.length === 1 ? "" : "s"}, researched ${new Date(resolved.researchedAt).toISOString().slice(0, 10)}).`;
+      } else if (resolved) {
+        docsNote = `No official documentation reference for ${resolved.productName}${resolved.note ? ` (${resolved.note})` : ""} -- built from SOX knowledge and the application context.`;
+      }
+    }
+
+    // One line per assistant call in the server log, so real spend
+    // (and whether the cache is hitting) is visible.
+    const usage = {
+      inputTokens: response.usage.input_tokens,
+      cacheReadTokens:
+        response.usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens:
+        response.usage.cache_creation_input_tokens ?? 0,
+      outputTokens: response.usage.output_tokens,
+    };
+    console.log(
+      `[assistant usage] input=${usage.inputTokens} cache_read=${usage.cacheReadTokens} cache_write=${usage.cacheWriteTokens} output=${usage.outputTokens} focus=${
+        focus.applicationIds.size > 0
+          ? [...focus.applicationIds].join(",")
+          : "all"
+      } stop=${response.stop_reason}`
+    );
 
     if (response.stop_reason === "max_tokens") {
       throw new Error(
@@ -4123,6 +4640,13 @@ ${message}
       }
     }
 
+    // Only documentation URLs from references shown this turn may be
+    // cited on checklist items.
+    keepKnownTaskReferences(
+      command.payload,
+      referenceUrls(platformRefs)
+    );
+
     // Tool calls occasionally come back with an empty
     // payload.application despite the schema and prompt requiring it
     // -- an LLM content-generation miss, not a parsing bug (seen with
@@ -4182,20 +4706,21 @@ ${message}
     return NextResponse.json({
       command,
 
-      assistantMessage:
-        rawCommand.payload.message,
+      assistantMessage: docsNote
+        ? `${rawCommand.payload.message ?? ""}\n\n_${docsNote}_`.trim()
+        : rawCommand.payload.message,
 
       warnings,
 
-      usage: {
-        inputTokens:
-          response.usage.input_tokens,
-
-        outputTokens:
-          response.usage.output_tokens,
-      },
+      usage,
     });
   } catch (error) {
+    // The user pressed Stop: the browser is gone, nothing to report.
+    if (request.signal.aborted) {
+      console.log("Control Governor: request stopped by the user.");
+      return new Response(null, { status: 499 });
+    }
+
     console.error(
       "Control Governor API error:",
       error

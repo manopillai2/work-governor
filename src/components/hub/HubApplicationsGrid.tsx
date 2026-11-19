@@ -7,13 +7,12 @@
 // executive overview lives on "/" (HubDashboard).
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { useAppState } from "@/components/AppStateProvider";
-import { buildControlDrillDownFilters } from "@/services/applicationFilters";
 import { useExecutiveSummaryPreview } from "@/components/ExecutiveSummaryPreview";
 import { HubAppCard, I, Icon, T, needsAttention } from "./hubUi";
 import { useHubChat } from "./HubShell";
+import { ControlPopout } from "./controlViews";
 
 const FAVORITES_KEY = "control-governor-favorites";
 
@@ -63,6 +62,10 @@ function Legend() {
             <span className={row}><Icon d={I.check} size={14} color={T.gray} /> Control status (green = completed)</span>
             <span className={row}><Icon d={I.warn} size={14} color={T.orange} /> Needs attention</span>
             <span className={row}><Icon d={I.db} size={14} color={T.teal} /> Has evidence / data notes</span>
+            <span className={row}>
+              <span className="rounded-full px-1.5 text-[10px] font-semibold" style={{ color: T.orange, background: T.orangeSoft }}>25%</span>
+              Readiness: share verified by real data (green / orange / red = data sufficient / partial / not yet); – = not built; dot = new uploads since
+            </span>
           </span>
         </>
       ) : null}
@@ -71,10 +74,13 @@ function Legend() {
 }
 
 export default function HubApplicationsGrid({ onOpenApp }: { onOpenApp: (id: string) => void }) {
-  const { applications, setFilters } = useAppState();
+  const { applications } = useAppState();
+  const [openControlId, setOpenControlId] = useState<string | null>(null);
+  const openEntry = applications
+    .flatMap((application) => application.controls.map((control) => ({ application, control })))
+    .find((e) => e.control.id === openControlId);
   const { openPreview, previewModal } = useExecutiveSummaryPreview();
-  const { openChat } = useHubChat();
-  const router = useRouter();
+  const { openOnboarding } = useHubChat();
 
   const [query, setQuery] = useState("");
   const [framework, setFramework] = useState("all");
@@ -132,7 +138,7 @@ export default function HubApplicationsGrid({ onOpenApp }: { onOpenApp: (id: str
 
   return (
     <div className="h-full min-h-0 overflow-y-auto overscroll-contain pb-4 pr-1">
-      <div className="flex flex-wrap items-center gap-2">
+      <div data-tour="app-filters" className="flex flex-wrap items-center gap-2">
         <label className="flex h-[30px] min-w-[240px] flex-1 items-center gap-2 rounded-md border bg-white px-3 text-[13px]" style={{ borderColor: T.border }}>
           <Icon d={I.search} size={15} color={T.faint} />
           <input
@@ -165,7 +171,7 @@ export default function HubApplicationsGrid({ onOpenApp }: { onOpenApp: (id: str
           <svg width="14" height="14" viewBox="0 0 24 24" fill={T.body} aria-hidden><path d={I.star} /></svg>
           Favorites <span className="text-[11px]" style={{ color: T.faint }}>{favoriteCount}</span>
         </button>
-        <button type="button" onClick={openChat} title="Applications are created through the assistant" className="-mb-px flex items-center gap-1 pb-2 font-medium" style={{ color: T.teal }}>
+        <button type="button" data-tour="new-app" onClick={() => openOnboarding()} title="Onboard a new application, or add controls to an existing one" className="-mb-px flex items-center gap-1 pb-2 font-medium" style={{ color: T.teal }}>
           <Icon d={I.plus} size={14} /> New
         </button>
         <span className="ml-auto flex items-center gap-4 pb-2 text-[12px]" style={{ color: T.faint }}>
@@ -177,8 +183,8 @@ export default function HubApplicationsGrid({ onOpenApp }: { onOpenApp: (id: str
       {applications.length === 0 ? (
         <div className="mt-10 rounded-[10px] border border-dashed p-10 text-center text-[14px]" style={{ borderColor: T.border, color: T.muted }}>
           No applications yet.{" "}
-          <button type="button" onClick={openChat} className="font-medium underline" style={{ color: T.teal }}>
-            Open the assistant
+          <button type="button" onClick={() => openOnboarding()} className="font-medium underline" style={{ color: T.teal }}>
+            Start onboarding
           </button>{" "}
           to create one.
         </div>
@@ -187,7 +193,10 @@ export default function HubApplicationsGrid({ onOpenApp }: { onOpenApp: (id: str
           {tab === "favorites" && favoriteCount === 0 ? "No favorites yet — click the star on an application card." : "No applications match these filters."}
         </div>
       ) : (
-        <div className="mt-4 grid grid-cols-1 gap-[18px] min-[760px]:grid-cols-2 min-[1150px]:grid-cols-3 min-[1500px]:grid-cols-4">
+        // Laptop layout unchanged (1-4 columns by width). On wider monitors
+        // the tiles keep laptop size -- fixed 340px columns, as many as fit
+        // -- instead of stretching.
+        <div className="mt-4 grid grid-cols-1 gap-[18px] min-[760px]:grid-cols-2 min-[1150px]:grid-cols-3 min-[1500px]:grid-cols-4 min-[1700px]:[grid-template-columns:repeat(auto-fill,340px)]">
           {visible.map((a) => (
             <HubAppCard
               key={a.id}
@@ -196,17 +205,15 @@ export default function HubApplicationsGrid({ onOpenApp }: { onOpenApp: (id: str
               favorite={favorites.includes(a.id)}
               onToggleFavorite={() => toggleFavorite(a.id)}
               onOpen={() => onOpenApp(a.id)}
-              onOpenControl={(cid) => {
-                // Open the control list on exactly this control.
-                const control = a.controls.find((c) => c.id === cid);
-                if (control) setFilters(buildControlDrillDownFilters(a, control));
-                router.push(`/controls?control=${encodeURIComponent(cid)}`);
-              }}
+              // Open that control right here, in the pop-out (work
+              // progress first), instead of leaving the page.
+              onOpenControl={(cid) => setOpenControlId(cid)}
             />
           ))}
         </div>
       )}
 
+      <ControlPopout entry={openEntry} onClose={() => setOpenControlId(null)} />
       {previewModal}
     </div>
   );

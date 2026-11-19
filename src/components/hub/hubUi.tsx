@@ -89,6 +89,7 @@ export {
   taskStats,
 } from "@/services/controlMetrics";
 import { activeTasks, clientCode, evidenceNotes, needsAttention, taskStats } from "@/services/controlMetrics";
+import { readinessCounts, readinessPercent } from "@/services/readiness";
 
 export function taskParts(s: ReturnType<typeof taskStats>) {
   return [
@@ -144,6 +145,42 @@ function DashedCircle({ size = 13 }: { size?: number }) {
   );
 }
 
+// Readiness score for a control row: share of the readiness profile's
+// items verified by real data, coloured by the data-sufficiency verdict.
+const READINESS_TONE = {
+  sufficient: { fg: "#0f8a5f", bg: "#e6f5ee" },
+  partial: { fg: "#c2610c", bg: "#fdf1e6" },
+  insufficient: { fg: "#d42a3c", bg: "#fdeef0" },
+} as const;
+
+export function ReadinessScore({ c, mono }: { c: ComplianceControl; mono: string }) {
+  const profile = c.readinessProfile;
+  if (!profile) {
+    return (
+      <span
+        className={`${mono} flex h-[16px] w-[34px] shrink-0 items-center justify-center rounded-full border border-dashed text-[9.5px]`}
+        style={{ borderColor: T.gray, color: T.faint }}
+        title="Readiness profile not built yet (View details → Work progress)"
+      >
+        –
+      </span>
+    );
+  }
+  const pct = readinessPercent(profile);
+  const n = readinessCounts(profile);
+  const tone = READINESS_TONE[profile.sufficiency.verdict] ?? READINESS_TONE.insufficient;
+  return (
+    <span
+      className={`${mono} relative flex h-[16px] w-[34px] shrink-0 items-center justify-center rounded-full text-[9.5px] font-semibold`}
+      style={{ color: tone.fg, background: tone.bg }}
+      title={`Readiness ${pct}% — ${n.verified} of ${n.applicable} items verified by real data · data ${profile.sufficiency.verdict}${n.conflict ? ` · ${n.conflict} conflict${n.conflict === 1 ? "" : "s"}` : ""} · updated ${profile.generatedAt.slice(0, 10)}${c.readinessStale ? " · new uploads since — rebuild to include them" : ""}`}
+    >
+      {pct}%
+      {c.readinessStale ? <span className="absolute -right-0.5 -top-0.5 h-[6px] w-[6px] rounded-full border border-white" style={{ background: T.orange }} /> : null}
+    </span>
+  );
+}
+
 function ControlRow({ c, mono, onClick }: { c: ComplianceControl; mono: string; onClick: () => void }) {
   const open = activeTasks(c).filter((t) => !t.completed).length;
   const hot = needsAttention(c);
@@ -171,6 +208,7 @@ function ControlRow({ c, mono, onClick }: { c: ComplianceControl; mono: string; 
       )}
       <span className="min-w-0 flex-1 truncate" style={{ color: T.text }}>{c.name}</span>
       <span className={`${mono} shrink-0 text-[9.5px]`} style={{ color: T.muted }}>{clientCode(c)}</span>
+      <ReadinessScore c={c} mono={mono} />
       <span className="flex w-[52px] shrink-0 items-center justify-end gap-1.5">
         {idle ? (
           <>
@@ -364,11 +402,16 @@ export function HubAppCard({
   const initials = appName.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
   return (
-    <article className="relative flex flex-col rounded-[9px] border px-3.5 pb-3 pt-3.5 transition hover:shadow-[0_4px_16px_rgba(15,40,60,0.08)]" style={{ background: T.card, borderColor: T.border }}>
+    <article data-tour="app-tile" className="relative flex flex-col rounded-[9px] border px-3.5 pb-3 pt-3.5 transition hover:shadow-[0_4px_16px_rgba(15,40,60,0.08)]" style={{ background: T.card, borderColor: T.border }}>
       <header className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[14px] font-semibold leading-tight" style={{ color: T.text }}>{appName}</h3>
-          <p className="mt-1 truncate text-[11px]" style={{ color: T.muted }}>
+          <p className="mt-1 truncate text-[11px]" style={{ color: T.muted }} title={`${app.controls.length} control${app.controls.length === 1 ? "" : "s"}`}>
+            {/* Control count first, so truncation never hides it. */}
+            <b className="font-semibold" style={{ color: T.text }}>
+              {app.controls.length} control{app.controls.length === 1 ? "" : "s"}
+            </b>
+            {" · "}
             {[context, app.hosting, app.dataClassification].filter(Boolean).join(" · ")}
             {" · "}
             <span style={{ color: ctx.fg }}>Context {app.contextStatus.toLowerCase()}</span>
@@ -417,7 +460,7 @@ export function HubAppCard({
             <Chip key={f} fg={T.teal} border={T.teal} mono={mono}>{f}</Chip>
           ))}
         </div>
-        <button type="button" onClick={onOpen} className="flex items-center gap-1.5 rounded-md border px-3 py-[5px] text-[12px] font-medium transition hover:bg-[#e2f2f5]" style={{ borderColor: T.teal, color: T.teal }}>
+        <button type="button" data-tour="view-details" onClick={onOpen} className="flex items-center gap-1.5 rounded-md border px-3 py-[5px] text-[12px] font-medium transition hover:bg-[#e2f2f5]" style={{ borderColor: T.teal, color: T.teal }}>
           View details <Icon d={I.arrow} size={12} />
         </button>
       </footer>
