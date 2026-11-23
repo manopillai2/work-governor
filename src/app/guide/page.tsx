@@ -1,894 +1,492 @@
 // ======================================================
 // Route          : /guide
-// Purpose        : Standalone product guide for Work
-//                  Governor -- architecture, objectives,
-//                  and every function/action it exposes.
-//                  Reached from "Control Governor" in the
-//                  Classic header, or "Take the tour" / Guide
-//                  in the New UI. Covers both layouts.
+// Purpose        : Product guide for Control Governor -- a short,
+//                  visual tour: the animated explainer, the six-step
+//                  journey, what you can do (click a tile for the
+//                  detail), where things live, and -- collapsed --
+//                  the technical "under the hood" material.
+//                  Reached from "Control Governor" in the Classic
+//                  header, or "Take the tour" / Guide in the New UI.
 // Author         : Manoj
+//
+// Colors are inline styles on purpose: globals.css remaps several
+// light Tailwind text colors (text-white, text-slate-100..300,
+// text-blue-50..300) for the light theme, which would wash out text
+// on the dark sections here.
 // ======================================================
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import UiModePicker from "@/components/UiModePicker";
+import type { ReactNode } from "react";
+
 import ControlGovernorExplainer from "@/components/ControlGovernorExplainer";
+import UiModePicker from "@/components/UiModePicker";
 
 export const metadata: Metadata = {
   title: "Control Governor -- Guide",
   description:
-    "Architecture, objectives, and functions of the Control Governor compliance workspace.",
+    "How Control Governor works: from an application name to evidence checked against real data, approved learnings and locked monitoring rules.",
 };
 
-type Tone =
-  | "blue"
-  | "violet"
-  | "emerald"
-  | "amber"
-  | "rose"
-  | "cyan"
-  | "indigo"
-  | "slate";
-
-const TONE_CARD: Record<Tone, string> = {
-  blue: "border-blue-200 bg-blue-50",
-  violet: "border-violet-200 bg-violet-50",
-  emerald: "border-emerald-200 bg-emerald-50",
-  amber: "border-amber-200 bg-amber-50",
-  rose: "border-rose-200 bg-rose-50",
-  cyan: "border-cyan-200 bg-cyan-50",
-  indigo: "border-indigo-200 bg-indigo-50",
-  slate: "border-slate-200 bg-slate-50",
+const C = {
+  navy: "#0b1f33",
+  ink: "#0f172a",
+  body: "#475569",
+  muted: "#64748b",
+  faint: "#94a3b8",
+  line: "#e2e8f0",
+  canvas: "#f5f7fa",
+  teal: "#0f7d8c",
+  mint: "#5eead4",
+  onDark: "#e6f4f6",
+  onDarkMuted: "#9cc3ca",
 };
 
-const TONE_BADGE: Record<Tone, string> = {
-  blue: "bg-blue-600",
-  violet: "bg-violet-600",
-  emerald: "bg-emerald-600",
-  amber: "bg-amber-600",
-  rose: "bg-rose-600",
-  cyan: "bg-cyan-600",
-  indigo: "bg-indigo-600",
-  slate: "bg-slate-600",
-};
+// ---------- icons ----------
 
-const TONE_TEXT: Record<Tone, string> = {
-  blue: "text-blue-700",
-  violet: "text-violet-700",
-  emerald: "text-emerald-700",
-  amber: "text-amber-700",
-  rose: "text-rose-700",
-  cyan: "text-cyan-700",
-  indigo: "text-indigo-700",
-  slate: "text-slate-700",
-};
+const PATHS = {
+  app: "M4 5h16v4H4zM4 11h16v4H4zM4 17h16v3H4z",
+  plus: "M12 5v14M5 12h14",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  file: "M7 3h7l5 5v13H7zM14 3v5h5",
+  db: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+  rule: "M4 7h10M4 12h16M4 17h7M17 4l3 3-3 3",
+  pulse: "M3 12h4l3-8 4 16 3-8h4",
+  bulb: "M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z",
+  shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z",
+  check: "M5 12l5 5 9-10",
+  spark: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z",
+  search: "M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16zM21 21l-4.3-4.3",
+  mail: "M3 6h18v12H3zM3 7l9 7 9-7",
+  book: "M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 21V5",
+  plug: "M9 3v5M15 3v5M7 8h10v4a5 5 0 0 1-10 0zM12 17v4",
+  chat: "M4 5h16v11H8l-4 4z",
+  lock: "M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4",
+  stop: "M7 7h10v10H7z",
+  undo: "M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3",
+  report: "M6 3h9l4 4v14H6zM9 13h6M9 17h6M9 9h2",
+  pause: "M8 5v14M16 5v14",
+  hub: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  arrow: "M5 12h14M13 6l6 6-6 6",
+  layers: "M12 3L3 8l9 5 9-5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5",
+} as const;
 
-function SectionHeading({
-  index,
-  title,
-  subtitle,
-  tone = "blue",
-}: {
-  index: string;
-  title: string;
-  subtitle?: string;
-  tone?: Tone;
-}) {
+function Glyph({ name, size = 18, color = "currentColor" }: { name: keyof typeof PATHS; size?: number; color?: string }) {
   return (
-    <div className="mb-6 flex items-start gap-4">
-      <span
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white ${TONE_BADGE[tone]}`}
-      >
-        {index}
-      </span>
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
-        {subtitle ? (
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">{subtitle}</p>
-        ) : null}
-      </div>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={PATHS[name]} />
+    </svg>
+  );
+}
+
+// ---------- content ----------
+
+const JOURNEY: { icon: keyof typeof PATHS; title: string; line: string; where: string }[] = [
+  { icon: "plus", title: "Onboard", line: "A name is enough", where: "+ New" },
+  { icon: "list", title: "Checklist", line: "Built from control intent", where: "Controls" },
+  { icon: "file", title: "Evidence", line: "What the team claims", where: "Upload evidence" },
+  { icon: "db", title: "Real data", line: "What the system proves", where: "Upload testing data" },
+  { icon: "rule", title: "Rule", line: "Built, approved, locked", where: "Rule logic" },
+  { icon: "pulse", title: "Monitor", line: "Exceptions, automatically", where: "Argos" },
+];
+
+type Feature = { icon: keyof typeof PATHS; title: string; line: string; more: string };
+
+const GROUPS: { name: string; tag: string; color: string; soft: string; features: Feature[] }[] = [
+  {
+    name: "Build",
+    tag: "From name to checklist",
+    color: "#2563eb",
+    soft: "#eff5ff",
+    features: [
+      { icon: "plus", title: "Onboarding", line: "Paste it, confirm it", more: "Paste anything -- even straight from a compliance tool. The assistant checks it, asks questions, and saves nothing until you confirm the exact application, controls and context." },
+      { icon: "list", title: "Smart checklists", line: "8 categories, from control intent", more: "Control intent first, refined by application context, vendor docs and approved learnings. Missing context becomes a task -- never a blank." },
+      { icon: "book", title: "Vendor docs", line: "Official facts, every one linked", more: "Known products get facts from the vendor's official documentation only, each linked to a page actually read, and reused across applications. In-house apps skip it." },
+      { icon: "mail", title: "Meeting prep", line: "One email, ranked questions", more: "A plain-language email for the application team with deduplicated open questions and example answers -- per control or per application." },
+    ],
+  },
+  {
+    name: "Prove",
+    tag: "Claims vs. facts",
+    color: "#0f8a5f",
+    soft: "#ecf8f2",
+    features: [
+      { icon: "file", title: "Uploads", line: "Confirmed before they land", more: "Evidence and testing data -- docx, pptx, xlsx, pdf, csv, json, txt, md. Every upload shows the application, control and files first: Yes, upload or No, go back." },
+      { icon: "search", title: "Readiness profile", line: "Verified · conflicts · next asks", more: "What the evidence claims, checked against the real data per population, configuration and access -- with the share verified and what to request next." },
+      { icon: "spark", title: "Gap analysis", line: "Every gap becomes a task", more: "Where evidence and data agree or contradict, and what data is missing -- each gap turns into an Access or Evidence Collection item." },
+      { icon: "plug", title: "Data collection", line: "Approved collectors pull it directly", more: "Save an encrypted connection, let the AI write a collector, review its security checks, approve it, run it. Output lands as testing data." },
+    ],
+  },
+  {
+    name: "Learn",
+    tag: "Smarter every time",
+    color: "#7c3aed",
+    soft: "#f4f0fe",
+    features: [
+      { icon: "chat", title: "Adaptive notes", line: "Notes reshape the checklist", more: "Every note is analyzed at once: items are added or marked irrelevant, each change logged with why it serves the control's objective." },
+      { icon: "bulb", title: "Learning pop-up", line: "Approve, deny or snooze", more: "One short card at a time: a headline, why it matters, what it adds. Snooze it, or move it to the Learning hub for later." },
+      { icon: "hub", title: "Learning hub", line: "Everything learned, by status", more: "Sidebar → Learnings: waiting, approved and denied, with search. Revoke an approved learning or re-open a denied one." },
+      { icon: "layers", title: "Control codes", line: "New codes need approval", more: "Client control codes mentioned in chat are proposed, never assumed, and only used once approved." },
+    ],
+  },
+  {
+    name: "Control",
+    tag: "You stay in charge",
+    color: "#0f7d8c",
+    soft: "#e9f6f8",
+    features: [
+      { icon: "rule", title: "Rule logic", line: "Built from real data", more: "Each control's monitoring rule builds itself when testing data or a readiness profile arrives -- with readiness and a still-needed list. Nothing invented." },
+      { icon: "chat", title: "Rule assistant", line: "Ask or change, right beside it", more: "Ask “which records would this flag today?” or tell it what to change. Changes save as a new version; approved and locked rules are only discussed." },
+      { icon: "lock", title: "Approve & lock", line: "Developing → Approved → Locked", more: "Approved rules aren't overwritten -- rebuilds wait as an update to apply or dismiss. Locked rules are frozen until unlocked." },
+      { icon: "stop", title: "Stop & roll back", line: "Cancel anything, restore anytime", more: "Stop any running request -- nothing changes. Numbered backups restore the whole workspace." },
+    ],
+  },
+];
+
+const CATEGORIES: [string, string, string][] = [
+  ["Homework", "Prior evidence, gaps", "#b45309"],
+  ["Discovery", "Purpose, owners, flows", "#2563eb"],
+  ["Access", "Read-only access", "#7c3aed"],
+  ["Evidence Collection", "Authoritative sources", "#0f8a5f"],
+  ["Validation", "Complete & accurate", "#0891b2"],
+  ["Approval", "Owner sign-off", "#be123c"],
+  ["Argos Design", "Monitoring logic", "#4f46e5"],
+  ["Next Steps", "Follow-ups", "#475569"],
+];
+
+const PRINCIPLES: [keyof typeof PATHS, string, string][] = [
+  ["shield", "Intent first", "What risk the control exists for"],
+  ["app", "Context refines", "Never replaces the intent"],
+  ["bulb", "Approved learnings", "Nothing reused unreviewed"],
+  ["list", "Never blank", "Missing context becomes a task"],
+  ["db", "Data over screenshots", "Toward system-generated proof"],
+];
+
+const OBJECTIVES = [
+  "Understand why each application exists.",
+  "Understand the business process and financial relevance it supports.",
+  "Understand why each SOX control applies to it.",
+  "Understand the risk the control addresses.",
+  "Challenge whether prior evidence is authoritative, complete, accurate, timely and sufficient.",
+  "Prefer direct, system-generated, machine-readable evidence over screenshots.",
+  "Identify the authoritative systems and the data, evidence and control owners.",
+  "Obtain read-only access to applications, databases, APIs, identity sources, logs and tickets.",
+  "Identify every relevant human and non-human identity.",
+  "Translate the control into objective, repeatable Argos monitoring logic.",
+];
+
+const TABLES: [string, string][] = [
+  ["applications", "Identity, context and hosting per application"],
+  ["controls", "Statuses, checklist, change log, readiness profile, rule logic + lifecycle"],
+  ["evidence_documents", "Every uploaded file and its extracted text"],
+  ["chat_messages", "The assistant conversation"],
+  ["backups", "Numbered, restorable snapshots"],
+  ["app_connections", "Data-collection connections (secrets encrypted)"],
+  ["collector_scripts / runs", "Collector versions, security checks, approvals, runs"],
+  ["learnings · learning_notes", "Checklist learnings by status, with reviewer notes"],
+  ["client_reference_learnings", "Proposed control codes awaiting approval"],
+  ["platform_references", "Official vendor documentation per product"],
+];
+
+const NAV_MAP: [keyof typeof PATHS, string, string][] = [
+  ["hub", "Dashboard", "The portfolio at a glance"],
+  ["app", "Applications", "Cards, + New, View details"],
+  ["list", "Controls", "The control matrix"],
+  ["bulb", "Learnings", "The Learning hub"],
+  ["report", "Executive summary", "The PDF for leadership"],
+  ["chat", "Assistant", "Bottom left, or the floating button"],
+];
+
+// ---------- building blocks ----------
+
+function SectionTitle({ kicker, title, line }: { kicker: string; title: string; line?: string }) {
+  return (
+    <div className="mb-8 max-w-2xl">
+      <p className="text-[12px] font-bold uppercase tracking-[0.18em]" style={{ color: C.teal }}>{kicker}</p>
+      <h2 className="mt-2 text-[30px] font-extrabold leading-tight tracking-tight sm:text-[36px]" style={{ color: C.ink }}>{title}</h2>
+      {line ? <p className="mt-2 text-[16px]" style={{ color: C.body }}>{line}</p> : null}
     </div>
   );
 }
 
-function FlowBox({
-  title,
-  lines,
-  tone,
-  icon,
-}: {
-  title: string;
-  lines: string[];
-  tone: Tone;
-  icon: React.ReactNode;
-}) {
+function Fold({ title, icon, children }: { title: string; icon: keyof typeof PATHS; children: ReactNode }) {
   return (
-    <div
-      className={`rounded-xl border ${TONE_CARD[tone]} px-4 py-3 text-center shadow-sm`}
-    >
-      <div
-        className={`mx-auto mb-1.5 flex h-9 w-9 items-center justify-center rounded-lg text-white ${TONE_BADGE[tone]}`}
-      >
-        {icon}
-      </div>
-      <p className={`text-sm font-bold ${TONE_TEXT[tone]}`}>{title}</p>
-      {lines.map((line) => (
-        <p key={line} className="mt-0.5 text-xs text-slate-600">
-          {line}
-        </p>
-      ))}
-    </div>
+    <details className="gx-fold rounded-2xl border bg-white" style={{ borderColor: C.line }}>
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: C.canvas, color: C.teal }}>
+          <Glyph name={icon} />
+        </span>
+        <span className="flex-1 text-[15px] font-semibold" style={{ color: C.ink }}>{title}</span>
+        <span className="gx-chevron text-[18px]" style={{ color: C.faint }}>⌄</span>
+      </summary>
+      <div className="border-t px-5 py-5" style={{ borderColor: C.line }}>{children}</div>
+    </details>
   );
 }
 
-const ICON_PROPS = {
-  width: 20,
-  height: 20,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.7,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-};
-
-function IconBrowser() {
-  return (
-    <svg {...ICON_PROPS}>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 9h18" />
-      <circle cx="6" cy="6.5" r="0.6" fill="currentColor" stroke="none" />
-      <circle cx="8.6" cy="6.5" r="0.6" fill="currentColor" stroke="none" />
-      <circle cx="11.2" cy="6.5" r="0.6" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function IconSparkle() {
-  return (
-    <svg {...ICON_PROPS}>
-      <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" />
-      <path
-        d="M18.5 3.5l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5.5-1.4z"
-        fill="currentColor"
-        stroke="none"
-      />
-    </svg>
-  );
-}
-
-function IconLayers() {
-  return (
-    <svg {...ICON_PROPS}>
-      <path d="M12 3L3 8l9 5 9-5-9-5z" />
-      <path d="M3 12l9 5 9-5" />
-      <path d="M3 16l9 5 9-5" />
-    </svg>
-  );
-}
-
-function IconCloud() {
-  return (
-    <svg {...ICON_PROPS}>
-      <path d="M6.5 18a3.5 3.5 0 010-7 5 5 0 019.7-1.7A3.5 3.5 0 0117.5 18h-11z" />
-    </svg>
-  );
-}
-
-function IconDatabase() {
-  return (
-    <svg {...ICON_PROPS}>
-      <ellipse cx="12" cy="6" rx="7" ry="3" />
-      <path d="M5 6v6c0 1.66 3.13 3 7 3s7-1.34 7-3V6" />
-      <path d="M5 12v6c0 1.66 3.13 3 7 3s7-1.34 7-3v-6" />
-    </svg>
-  );
-}
-
-function IconDocument() {
-  return (
-    <svg {...ICON_PROPS}>
-      <path d="M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" />
-      <path d="M14 3v5h5" />
-      <path d="M9 13h6M9 17h6" />
-    </svg>
-  );
-}
-
-function IconFunnel() {
-  return (
-    <svg {...ICON_PROPS}>
-      <path d="M4 4h16l-6.5 8v6l-3 1.5v-7.5z" />
-    </svg>
-  );
-}
-
-function IconBulb() {
-  return (
-    <svg {...ICON_PROPS}>
-      <circle cx="12" cy="9" r="5" />
-      <path d="M9.5 18.5h5" />
-      <path d="M10 21h4" />
-      <path d="M12 14v2.5" />
-    </svg>
-  );
-}
-
-function ArrowDown() {
-  return (
-    <div className="relative flex justify-center py-1">
-      <svg width="20" height="24" viewBox="0 0 20 24" fill="none">
-        <path
-          d="M10 0V18M10 18L3 11M10 18L17 11"
-          stroke="#94a3b8"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-      <span className="guide-flow-dot guide-flow-dot-y" />
-    </div>
-  );
-}
-
-function ArrowRight() {
-  return (
-    <div className="relative hidden items-center justify-center px-1 sm:flex">
-      <svg width="24" height="20" viewBox="0 0 24 20" fill="none">
-        <path
-          d="M0 10H18M18 10L11 3M18 10L11 17"
-          stroke="#94a3b8"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-      <span className="guide-flow-dot guide-flow-dot-x" />
-    </div>
-  );
-}
-
-function FunctionCard({
-  title,
-  description,
-  tone,
-}: {
-  title: string;
-  description: string;
-  tone: Tone;
-}) {
-  return (
-    <div
-      className={`rounded-2xl border ${TONE_CARD[tone]} p-5 shadow-sm transition hover:shadow-md`}
-    >
-      <h3 className={`text-base font-bold ${TONE_TEXT[tone]}`}>{title}</h3>
-      <p className="mt-2 text-sm leading-6 text-slate-700">{description}</p>
-    </div>
-  );
-}
-
-function CategoryChip({
-  name,
-  description,
-  tone,
-}: {
-  name: string;
-  description: string;
-  tone: Tone;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <span
-        className={`inline-block rounded-full px-3 py-1 text-xs font-bold text-white ${TONE_BADGE[tone]}`}
-      >
-        {name}
-      </span>
-      <p className="mt-2 text-xs leading-5 text-slate-600">{description}</p>
-    </div>
-  );
-}
-
+// ---------- page ----------
 
 export default function GuidePage() {
   return (
-    <main className="h-screen snap-y snap-proximity overflow-y-auto scroll-smooth bg-slate-50">
+    <main className="h-screen overflow-y-auto scroll-smooth" style={{ background: C.canvas }}>
       {/* Hero */}
-      <div className="guide-hero snap-start bg-gradient-to-br from-[#16324a] via-[#0f5f6e] to-[#0f7d8c] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-14">
+      <header className="guide-hero gx-hero relative overflow-hidden">
+        <div className="relative mx-auto max-w-6xl px-6 pb-20 pt-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1 text-sm font-medium text-blue-100 transition hover:text-white"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M10 13L5 8L10 3"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Back to the app
+            <Link href="/" className="inline-flex items-center gap-1.5 text-[13px] font-medium" style={{ color: C.onDarkMuted }}>
+              <span aria-hidden="true">←</span> Back to the app
             </Link>
-
-            <div className="flex shrink-0 items-center gap-2 text-xs font-medium text-blue-100">
-              Layout
-              <UiModePicker onDark />
+            <div className="flex items-center gap-2 text-[12px] font-medium" style={{ color: C.onDarkMuted }}>
+              Layout <UiModePicker onDark />
             </div>
           </div>
 
-          <h1 className="mt-4 text-4xl font-extrabold tracking-tight sm:text-5xl">
-            Control Governor
-          </h1>
+          <div className="gx-rise mt-16 max-w-3xl">
+            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold" style={{ background: "rgba(94,234,212,0.12)", color: C.mint, border: "1px solid rgba(94,234,212,0.3)" }}>
+              <span className="gx-dot" /> SOX · PCI DSS · Argos-ready
+            </span>
+            <h1 className="mt-5 text-[48px] font-extrabold leading-[1.02] tracking-tight sm:text-[68px]" style={{ color: "#ffffff" }}>
+              Control Governor
+            </h1>
+            <p className="mt-5 text-[20px] leading-8 sm:text-[22px]" style={{ color: C.onDark }}>
+              From an application name to a <span style={{ color: C.mint, fontWeight: 700 }}>locked monitoring rule</span> -- with every claim checked against real data.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <a href="#how" className="rounded-xl px-5 py-3 text-[14px] font-semibold shadow-lg" style={{ background: C.mint, color: C.navy }}>
+                See how it works
+              </a>
+              <Link href="/" className="rounded-xl px-5 py-3 text-[14px] font-semibold" style={{ color: "#ffffff", border: "1px solid rgba(255,255,255,0.28)" }}>
+                Open the app
+              </Link>
+            </div>
+          </div>
 
-          <p className="mt-3 max-w-2xl text-base leading-7 text-blue-50">
-            An AI-powered compliance workspace that turns plain-language
-            application context into framework-aware SOX and PCI DSS
-            checklists, adapts them from real findings with a fully
-            auditable change history, and -- through the Learning Engine --
-            carries validated knowledge across every application, driving
-            toward authoritative, system-generated evidence and continuous
-            Argos monitoring.
-          </p>
-
-          <p className="mt-3 max-w-2xl text-base leading-7 text-blue-50">
-            It now also ingests the underlying evidence and testing
-            data behind every control, tracks the two
-            separately with full attribution, and actively surfaces where
-            they diverge -- driving the shift from screenshot-style
-            evidence to authoritative, system-generated data.
-          </p>
-
-          <p className="mt-3 max-w-2xl text-base leading-7 text-blue-50">
-            Two layouts share the same data, assistant, and look:{" "}
-            <strong className="font-semibold text-white">Classic</strong>{" "}
-            -- a header with progress tiles above a flat Controls list
-            with the assistant docked alongside -- and the{" "}
-            <strong className="font-semibold text-white">New UI</strong>{" "}
-            -- a sidebar workspace that opens on a dashboard of
-            application cards, with the assistant in a slide-over
-            drawer. Switch any time with the picker above; see{" "}
-            <a href="#layouts" className="underline decoration-white/50 underline-offset-2 hover:decoration-white">
-              Start here
-            </a>{" "}
-            for where everything lives in each.
-          </p>
-
-          <p className="mt-4 text-xs font-medium text-blue-200">
-            Developed by Manoj &middot; Workspace: CORE &middot; Framework:
-            SOX / PCI DSS
-          </p>
+          <div className="gx-rise gx-delay-2 mt-14 grid gap-3 sm:grid-cols-3">
+            {[
+              ["spark", "Understand", "Context + control intent"],
+              ["db", "Prove", "Evidence vs. real data"],
+              ["lock", "Automate", "Rules you approve and lock"],
+            ].map(([icon, title, line]) => (
+              <div key={title} className="flex items-center gap-3 rounded-2xl px-4 py-3.5" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "rgba(94,234,212,0.14)", color: C.mint }}>
+                  <Glyph name={icon as keyof typeof PATHS} size={20} />
+                </span>
+                <span>
+                  <span className="block text-[15px] font-bold" style={{ color: "#ffffff" }}>{title}</span>
+                  <span className="block text-[13px]" style={{ color: C.onDarkMuted }}>{line}</span>
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </header>
 
-      <section className="snap-start bg-slate-950 px-6 py-14">
+      {/* Animated explainer */}
+      <section id="how" className="scroll-mt-4 px-6 py-14" style={{ background: "#070d19" }}>
         <div className="mx-auto max-w-7xl">
           <ControlGovernorExplainer />
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-16 px-6 py-14">
-        {/* 0. Layouts */}
-        <section id="layouts" className="snap-start scroll-mt-4">
-          <SectionHeading
-            index="0"
-            title="Start here: Classic and New UI"
-            subtitle="Two layouts over the same workspace. Nothing is stored per layout -- every application, control, note, and chat message is shared, so you can switch back and forth freely."
-            tone="cyan"
-          />
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-1">
-              <h3 className="text-base font-bold text-slate-900">Switching layouts</h3>
-              <div className="mt-3">
-                <UiModePicker />
-              </div>
-              <ul className="mt-4 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-600">
-                <li><strong className="text-slate-800">Classic:</strong> &ldquo;Try new UI&rdquo; at the top-right of the header.</li>
-                <li><strong className="text-slate-800">New UI:</strong> &ldquo;Classic UI&rdquo; at the right of the top bar.</li>
-                <li>Your choice is remembered in this browser.</li>
-                <li>Shareable links: add <code className="rounded bg-slate-100 px-1 text-xs">?ui=hub</code> or <code className="rounded bg-slate-100 px-1 text-xs">?ui=classic</code> to any page.</li>
-              </ul>
-            </div>
-
-            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-2.5 font-semibold">Task</th>
-                    <th className="px-4 py-2.5 font-semibold">Classic</th>
-                    <th className="px-4 py-2.5 font-semibold">New UI</th>
-                  </tr>
-                </thead>
-                <tbody className="text-slate-700">
-                  {[
-                    ["Home screen", "Flat Controls list (/) with the assistant docked on the right", "Dashboard (/) -- a card per application"],
-                    ["Work on controls", "The home screen", "Sidebar → Workspace → Controls (/controls, the control matrix), or click a control on the dashboard / an application card"],
-                    ["Application context & bulk actions", "“Application View” button → Applications", "Sidebar → Workspace → Applications, or “View details” on a card"],
-                    ["Progress at a glance", "Header tiles -- click one to filter the control list", "Summary strip under the top bar -- click a cell to drill down"],
-                    ["Assistant / chat", "Docked column; “Collapse” to hide it", "Slide-over drawer: sidebar “Assistant” or the floating button"],
-                    ["Executive summary PDF", "“Executive Summary” above the control list", "Sidebar → Reports → Executive summary, or “Executive summary” on the dashboard"],
-                    ["This guide", "Click “Control Governor” in the header", "“Take the tour” in the top bar, or sidebar → Support → Guide"],
-                    ["Chat keyboard shortcuts", "“Help” under the message box", "“Help” under the message box"],
-                  ].map(([task, classic, hub]) => (
-                    <tr key={task} className="border-b border-slate-100 last:border-b-0 align-top">
-                      <td className="px-4 py-2.5 font-medium text-slate-900">{task}</td>
-                      <td className="px-4 py-2.5">{classic}</td>
-                      <td className="px-4 py-2.5">{hub}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <h3 className="mb-3 mt-8 text-lg font-bold text-slate-900">Reading the New UI dashboard</h3>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <FunctionCard
-              tone="cyan"
-              title="Application cards"
-              description="Name, team, hosting, data classification, and context status. The bar shows checklist tasks done (green), open with evidence notes (blue), and open with nothing yet (grey); an orange pill counts controls needing attention."
-            />
-            <FunctionCard
-              tone="cyan"
-              title="Control rows"
-              description="Pill = open tasks on the control (red outline when it needs attention, dashed “–” when nothing has been recorded yet), then the client code (e.g. IS08) and icons for homework, control status, and evidence notes."
-            />
-            <FunctionCard
-              tone="cyan"
-              title="Click a control row"
-              description="Opens Controls already narrowed to that control using the existing Apps and Control filters, with the control expanded. Clear or change them in the filter bar. Controls without a client code narrow to their application only."
-            />
-            <FunctionCard
-              tone="blue"
-              title="Owner & context (i)"
-              description="The small (i) on each card pops up the owner, tech owner, purpose, process, hosting, data class, financial relevance, people & systems, and a one-line status. Empty fields read “Not captured” so gaps stand out. Esc or click away to close."
-            />
-            <FunctionCard
-              tone="blue"
-              title="Search, filters, tabs"
-              description="Search across names, owners, contacts, and controls; filter by framework, context status, or stage. ★ marks a favourite (kept in this browser) for the Favorites tab; “+ New” opens the assistant, where applications are created. “Legend” explains every colour and icon."
-            />
-            <FunctionCard
-              tone="blue"
-              title="Collapsible sidebar"
-              description="The « button at the bottom of the sidebar shrinks it to icons only (names as tooltips, counts as small badges); » expands it again. Remembered in this browser."
-            />
-          </div>
-
-          <p className="mt-6 max-w-4xl text-sm leading-6 text-slate-600">
-            <strong className="text-slate-800">Shared by both layouts:</strong> the same
-            control cards (checklists, notes, evidence / testing data indicators,
-            evidence-vs-testing-data analysis,
-            change log), the same Applications detail view, the same assistant and
-            evidence uploads, and the same teal / Figtree visual style. Every action
-            described in the sections below works identically in either layout.
-          </p>
-        </section>
-
-        {/* 1. Architecture */}
-        <section id="architecture" className="snap-start scroll-mt-4">
-          <SectionHeading
-            index="1"
-            title="Architecture"
-            subtitle="Every chat message is summarized together with full application state, chat history, and accepted learnings, then sent to Claude with a fixed tool schema. Claude returns exactly one structured command; commandEngine.ts is the only place that ever mutates application state."
-            tone="blue"
-          />
-
-          <div className="space-y-2">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
-              <FlowBox
-                title="Browser UI"
-                lines={["ChatPanel, ControlCard,", "ApplicationDetail"]}
-                tone="blue"
-                icon={<IconBrowser />}
-              />
-              <ArrowRight />
-              <FlowBox
-                title="/api/assistant"
-                lines={["Claude (Anthropic API)", "command interpreter"]}
-                tone="violet"
-                icon={<IconSparkle />}
-              />
-              <ArrowRight />
-              <FlowBox
-                title="commandEngine.ts"
-                lines={["deterministic state", "reducer"]}
-                tone="emerald"
-                icon={<IconLayers />}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
-              <div />
-              <div />
-              <ArrowDown />
-              <div />
-              <ArrowDown />
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
-              <FlowBox
-                title="/api/state"
-                lines={["load / save snapshot"]}
-                tone="blue"
-                icon={<IconCloud />}
-              />
-              <ArrowRight />
-              <FlowBox
-                title="Postgres (core)"
-                lines={[
-                  "applications, controls,",
-                  "chat_messages, backups,",
-                  "evidence_documents",
-                ]}
-                tone="slate"
-                icon={<IconDatabase />}
-              />
-              <ArrowRight />
-              <FlowBox
-                title="Export services"
-                lines={["exportReport.ts", "meetingPrepEmail.ts"]}
-                tone="rose"
-                icon={<IconDocument />}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
-              <div />
-              <div />
-              <div />
-              <div />
-              <ArrowDown />
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
-              <FlowBox
-                title="/api/learnings/*"
-                lines={["capture + human review"]}
-                tone="blue"
-                icon={<IconFunnel />}
-              />
-              <ArrowRight />
-              <FlowBox
-                title="Postgres (learning)"
-                lines={[
-                  "learnings, learning_notes,",
-                  "client_reference_learnings",
-                ]}
-                tone="slate"
-                icon={<IconDatabase />}
-              />
-              <ArrowRight />
-              <FlowBox
-                title="Learning Engine"
-                lines={["reapplied on every", "regeneration"]}
-                tone="emerald"
-                icon={<IconBulb />}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* 2. Objectives */}
-        <section id="objectives" className="snap-start scroll-mt-4">
-          <SectionHeading
-            index="2"
-            title="Permanent Assignment Objective"
-            subtitle="This objective is permanent and guides every application, control, checklist, question, response, and recommendation Control Governor produces."
-            tone="violet"
-          />
-
-          <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {[
-              "Understand why each application exists.",
-              "Understand the business process and financial relevance supported by the application.",
-              "Understand why each SOX control applies to the application.",
-              "Understand the risk that the control is intended to address.",
-              "Challenge whether prior-season evidence is authoritative, complete, accurate, timely, and sufficient.",
-              "Prefer direct, system-generated, machine-readable evidence instead of manually captured screenshots.",
-              "Identify the authoritative systems, data owners, evidence owners, and control owners.",
-              "Obtain appropriate read-only access to applications, servers, databases, APIs, identity sources, logs, configuration records, ticketing systems, cloud platforms, and reports.",
-              "Identify every relevant human and non-human identity.",
-              "Translate the control into objective, repeatable Argos monitoring logic.",
-            ].map((item, index) => (
-              <li
-                key={item}
-                className="flex gap-3 rounded-xl border border-violet-200 bg-violet-50 p-4"
-              >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">
-                  {index + 1}
+      <div className="mx-auto max-w-6xl space-y-24 px-6 py-20">
+        {/* Journey */}
+        <section>
+          <SectionTitle kicker="The journey" title="Six steps. One control." line="Follow any control from onboarding to automated monitoring." />
+          <ol className="gx-journey grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            {JOURNEY.map((step, index) => (
+              <li key={step.title} className="gx-card gx-step relative rounded-2xl border bg-white p-5" style={{ borderColor: C.line, animationDelay: `${index * 70}ms` }}>
+                <span className="text-[12px] font-bold tabular-nums" style={{ color: C.faint }}>0{index + 1}</span>
+                <span className="mt-3 flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: "linear-gradient(135deg,#0f7d8c,#16324a)", color: "#ffffff" }}>
+                  <Glyph name={step.icon} size={22} />
                 </span>
-                <span className="text-sm leading-6 text-slate-700">
-                  {item}
-                </span>
+                <p className="mt-4 text-[17px] font-bold" style={{ color: C.ink }}>{step.title}</p>
+                <p className="mt-1 text-[13.5px] leading-5" style={{ color: C.body }}>{step.line}</p>
+                <span className="mt-3 inline-block rounded-md px-2 py-0.5 text-[11.5px] font-semibold" style={{ background: C.canvas, color: C.teal }}>{step.where}</span>
               </li>
             ))}
           </ol>
         </section>
 
-        {/* 3. Checklist generation priority */}
-        <section id="priority" className="snap-start scroll-mt-4">
-          <SectionHeading
-            index="3"
-            title="Checklist Generation Priority"
-            subtitle="Applies to every checklist Control Governor produces -- creating, adding, or regenerating a control."
-            tone="cyan"
-          />
-
-          <div className="space-y-3">
-            {[
-              {
-                title: "Ground it in control intent",
-                body: "What risk this specific control exists to address, and what it requires regardless of any particular application -- the foundation, even when nothing else is known yet.",
-              },
-              {
-                title: "Refine with application context",
-                body: "Purpose, business process, hosting, integrations, identity types, and financial relevance sharpen the foundation -- they never replace the control's intent.",
-              },
-              {
-                title: "Weave in accepted learnings",
-                body: "Any accepted learning matching this control's framework and this application's hosting is folded in.",
-              },
-              {
-                title: "Never a bare placeholder",
-                body: "If context is missing or incomplete, still produce a control-intent-grounded checklist -- while clearly flagging the gap and adding a required task to close it.",
-              },
-              {
-                title: "Everything drives toward evidence and Argos",
-                body: "Every task exists to find and collect valid, reliable evidence directly from the application -- prioritizing APIs, logs, and identity sources over screenshots -- and to progress toward repeatable Argos monitoring rule logic.",
-              },
-            ].map((step, index) => (
-              <div
-                key={step.title}
-                className="flex gap-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-600 text-sm font-bold text-white">
-                  {index + 1}
-                </span>
-                <div>
-                  <p className="text-sm font-bold text-cyan-800">
-                    {step.title}
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-slate-700">
-                    {step.body}
-                  </p>
+        {/* Features */}
+        <section>
+          <SectionTitle kicker="What you can do" title="Everything, in one workspace." line="Click any tile for the detail." />
+          <div className="grid gap-5 lg:grid-cols-2">
+            {GROUPS.map((group) => (
+              <div key={group.name} className="gx-card overflow-hidden rounded-3xl border bg-white" style={{ borderColor: C.line }}>
+                <div className="flex items-baseline justify-between px-6 pb-3 pt-5" style={{ background: group.soft }}>
+                  <h3 className="text-[22px] font-extrabold tracking-tight" style={{ color: group.color }}>{group.name}</h3>
+                  <span className="text-[13px] font-medium" style={{ color: C.muted }}>{group.tag}</span>
+                </div>
+                <div className="grid sm:grid-cols-2">
+                  {group.features.map((feature) => (
+                    <details key={feature.title} className="gx-tile border-t sm:[&:nth-child(odd)]:border-r" style={{ borderColor: C.line }}>
+                      <summary className="flex cursor-pointer list-none items-start gap-3 px-5 py-4">
+                        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: group.soft, color: group.color }}>
+                          <Glyph name={feature.icon} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[15px] font-bold" style={{ color: C.ink }}>{feature.title}</span>
+                          <span className="block text-[13px]" style={{ color: C.muted }}>{feature.line}</span>
+                        </span>
+                        <span className="gx-plus mt-1 text-[16px] font-bold" style={{ color: group.color }}>+</span>
+                      </summary>
+                      <p className="px-5 pb-4 pl-[68px] text-[13.5px] leading-6" style={{ color: C.body }}>{feature.more}</p>
+                    </details>
+                  ))}
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        {/* 4. Task categories */}
-        <section id="categories" className="snap-start scroll-mt-4">
-          <SectionHeading
-            index="4"
-            title="Checklist Task Categories"
-            subtitle="Every checklist task belongs to exactly one of these eight categories."
-            tone="amber"
-          />
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <CategoryChip
-              name="Homework"
-              description="Prior-season evidence, control description, application documentation, known audit questions, missing context."
-              tone="amber"
-            />
-            <CategoryChip
-              name="Discovery"
-              description="Application purpose, process, architecture, owners, integrations, environments, identity types, control operation."
-              tone="blue"
-            />
-            <CategoryChip
-              name="Access"
-              description="Read-only application, server, database, cloud, API, log, identity-source, ticketing, and configuration access."
-              tone="violet"
-            />
-            <CategoryChip
-              name="Evidence Collection"
-              description="Authoritative source, required fields, population, logs, reports, configuration, identities, extraction method."
-              tone="emerald"
-            />
-            <CategoryChip
-              name="Validation"
-              description="Completeness, accuracy, frequency, retention, reconciliation, stale/orphaned identities, unresolved exceptions."
-              tone="cyan"
-            />
-            <CategoryChip
-              name="Approval"
-              description="Application-owner, control-owner, evidence-owner confirmation, reviewer approval, sign-off."
-              tone="rose"
-            />
-            <CategoryChip
-              name="Argos Design"
-              description="Data-source mapping, fields, monitoring logic and frequency, exception criteria, alert owner, remediation workflow."
-              tone="indigo"
-            />
-            <CategoryChip
-              name="Next Steps"
-              description="Meetings, follow-ups, dependencies, missing access or contacts, open questions, action owners."
-              tone="slate"
-            />
-          </div>
-        </section>
-
-        {/* 5. Functions */}
-        <section id="functions" className="snap-start scroll-mt-4">
-          <SectionHeading
-            index="5"
-            title="Functions &amp; Actions"
-            subtitle="Every capability the chat command interpreter can trigger, in one turn, from a plain-language request."
-            tone="emerald"
-          />
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FunctionCard
-              tone="blue"
-              title="Create / rename applications"
-              description="Registers a new application (with hosting and any known context) or renames an existing one, from a plain-language request."
-            />
-            <FunctionCard
-              tone="blue"
-              title="Update application context"
-              description="Records purpose, business process, owners, contacts, hosting, integrations, identity types, data classification, and financial relevance as they're learned."
-            />
-            <FunctionCard
-              tone="violet"
-              title="Add controls"
-              description="Attaches a named SOX or PCI DSS control to an application, with an initial checklist generated from the control's intent and any known context."
-            />
-            <FunctionCard
-              tone="violet"
-              title="Generate / regenerate checklists"
-              description="Rebuilds one control's checklist, or every control's checklist for an application, from scratch -- combining control intent, current context, every recorded note, and accepted learnings."
-            />
-            <FunctionCard
-              tone="emerald"
-              title="Adaptive note analysis"
-              description="Every note against a checklist item or control is analyzed immediately: it can add a new item or mark one irrelevant, refreshing the progress summary. Any new item must tie back to this control's own objective or risk -- the change log records which part it serves, not just that something changed."
-            />
-            <FunctionCard
-              tone="emerald"
-              title="Application-team reply ingestion"
-              description="Parses a pasted reply from an application team, distributes each answer to the right context field or checklist item across multiple controls at once, and files the rest as open notes."
-            />
-            <FunctionCard
-              tone="amber"
-              title="Meeting-prep email export"
-              description="Drafts a plain-language email for the application team ahead of a compliance meeting -- what's known, plus a ranked, deduplicated list of open questions grouped by topic with example answers. Available per control and per application, as a chat command or a one-click button."
-            />
-            <FunctionCard
-              tone="amber"
-              title="Open questions view"
-              description="The same underlying question set as the prep email, shown as a plain numbered list (no table) with a copy button -- for pasting straight into an email or ticket."
-            />
-            <FunctionCard
-              tone="amber"
-              title="Executive progress report (PDF)"
-              description="Generates a formatted PDF: executive summary, control-status breakdown, per-application progress, evidence / testing data uploads, attention-required items, and every item marked irrelevant with its reason."
-            />
-            <FunctionCard
-              tone="rose"
-              title="Full data backup / rollback"
-              description="Saves a restorable, numbered snapshot of every application, control, checklist, and the chat history; rolls back to any prior snapshot with confirmation."
-            />
-            <FunctionCard
-              tone="rose"
-              title="Learning Engine"
-              description="Captures notable checklist changes as candidate learnings scoped by framework and hosting, and candidate Client Control Reference codes spotted in conversation -- both held for human approval before they're checked against any future checklist generation or applied to a control."
-            />
-            <FunctionCard
-              tone="indigo"
-              title="Checklist review status"
-              description="Tracks Review Pending / Approved / Needs Revision / Completed per control, separate from the control's own workflow status."
-            />
-            <FunctionCard
-              tone="indigo"
-              title="Control workflow stage"
-              description="Tracks each control through Homework, Discovery, Evidence Collection, Testing, Review, and Completed."
-            />
-            <FunctionCard
-              tone="cyan"
-              title="Client Control Reference codes"
-              description="Maps each control to a fixed internal code table (e.g. IS02 - User provisioning). New codes mentioned in conversation are proposed, never assumed, and only take effect once approved through the Learning Engine."
-            />
-            <FunctionCard
-              tone="emerald"
-              title="Evidence & data attachments"
-              description="Attach evidence documents (workpapers, policies, screenshots) or testing data (exports, configs) from the chat -- multiple files at once, any of docx/pptx/xlsx/pdf/csv/json/txt/md, no size limit. Full text is stored for future Q&A, and every note it produces is tagged with its source kind, filename, and a unique note ID."
-            />
-            <FunctionCard
-              tone="emerald"
-              title="Attachments manager"
-              description="Per application: every uploaded file with its document ID, kind, upload date, and the note IDs it produced, filterable by Evidence / Data / All. Deleting a file strikes through the notes it produced instead of removing them, and flags the affected control for manual checklist regeneration."
-            />
-            <FunctionCard
-              tone="emerald"
-              title="Evidence vs. Testing Data Gap Analysis"
-              description="Per control: a structured breakdown of what each evidence document and testing data file claims, where they agree or contradict, and specifically what testing data is still missing to independently back up each piece of evidence -- the throughline toward retiring screenshot-style evidence. Every gap it finds automatically becomes a matching Access or Evidence Collection checklist task, so it turns into a concrete ask instead of just an observation. A high-level version rolls up at the application level. Refreshes automatically after an upload, or on demand."
-            />
-            <FunctionCard
-              tone="violet"
-              title="Access requests"
-              description="Every 'Access' checklist item across all of an application's controls in one list -- each one marked Open or Granted and tagged with the control it is for, filterable and copyable as a ready-to-send list -- so they can be lined up against one shared, read-only credential for pulling data straight from the application."
-            />
-          </div>
-        </section>
-
-        {/* 6. Data model */}
-        <section id="data-model" className="snap-start scroll-mt-4">
-          <SectionHeading
-            index="6"
-            title="Data Model"
-            subtitle="Two Postgres databases back the app: the core workspace database, and a separate learning database."
-            tone="slate"
-          />
-
-          <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="bg-slate-800 text-white">
-                  <th className="px-4 py-3 font-semibold">Table</th>
-                  <th className="px-4 py-3 font-semibold">Purpose</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  [
-                    "applications",
-                    "One row per application: identity, hosting, context fields, notes, evidence-vs-data summary, and context-completeness status.",
-                  ],
-                  [
-                    "controls",
-                    "One row per control on an application: framework, statuses, objective/risk/evidence fields, evidence-vs-testing-data gap analysis, checklist, change log, and progress summary.",
-                  ],
-                  [
-                    "evidence_documents",
-                    "One row per uploaded evidence or testing data file: application, filename, kind (evidence / testing data), extracted text, and upload metadata. Notes reference these by ID to know which document they came from.",
-                  ],
-                  [
-                    "chat_messages",
-                    "Persisted conversation history (role, content, and any attachment such as a meeting-prep email).",
-                  ],
-                  [
-                    "backups",
-                    "Numbered, restorable JSON snapshots of the full application/control/chat state.",
-                  ],
-                  [
-                    "learnings",
-                    "Candidate and accepted checklist-change learnings: content, suggested checklist item and category, framework/hosting scope, and the source change that produced them.",
-                  ],
-                  [
-                    "learning_notes",
-                    "Free-form notes attached to a learning during human review.",
-                  ],
-                  [
-                    "client_reference_learnings",
-                    "Candidate Client Control Reference codes spotted in conversation, held for human approval before they're usable.",
-                  ],
-                ].map(([table, purpose], index) => (
-                  <tr
-                    key={table}
-                    className={
-                      index % 2 === 0 ? "bg-white" : "bg-slate-50"
-                    }
-                  >
-                    <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">
-                      {table}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{purpose}</td>
-                  </tr>
+        {/* Where things live */}
+        <section>
+          <SectionTitle kicker="Find your way" title="Where everything lives." line="Two layouts, one workspace -- switch any time." />
+          <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+            <div className="gx-card rounded-3xl border bg-white p-6" style={{ borderColor: C.line }}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-[17px] font-bold" style={{ color: C.ink }}>New UI <span className="ml-1 rounded-md px-2 py-0.5 text-[11px] font-semibold" style={{ background: "#e9f6f8", color: C.teal }}>recommended</span></h3>
+                <span className="text-[12px]" style={{ color: C.muted }}>Sidebar</span>
+              </div>
+              <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+                {NAV_MAP.map(([icon, name, line]) => (
+                  <li key={name} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: C.canvas }}>
+                    <span style={{ color: C.teal }}><Glyph name={icon} /></span>
+                    <span>
+                      <span className="block text-[14px] font-semibold" style={{ color: C.ink }}>{name}</span>
+                      <span className="block text-[12px]" style={{ color: C.muted }}>{line}</span>
+                    </span>
+                  </li>
                 ))}
-              </tbody>
-            </table>
+              </ul>
+            </div>
+            <div className="gx-card flex flex-col justify-between rounded-3xl p-6" style={{ background: "linear-gradient(160deg,#0b1f33,#0f5f6e)" }}>
+              <div>
+                <h3 className="text-[17px] font-bold" style={{ color: "#ffffff" }}>Classic</h3>
+                <p className="mt-2 text-[14px] leading-6" style={{ color: C.onDark }}>One flat control list with the assistant docked alongside.</p>
+              </div>
+              <div className="mt-6 space-y-2 text-[13px]" style={{ color: C.onDarkMuted }}>
+                <p><span style={{ color: C.mint }}>Switch:</span> “Try new UI” / “Classic UI” at top right</p>
+                <p><span style={{ color: C.mint }}>Share:</span> add <code style={{ color: "#ffffff" }}>?ui=hub</code> or <code style={{ color: "#ffffff" }}>?ui=classic</code></p>
+                <p><span style={{ color: C.mint }}>Tour:</span> “Take the tour” in the top bar</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Categories + principles */}
+        <section>
+          <SectionTitle kicker="How it thinks" title="Five rules. Eight kinds of task." />
+          <div className="grid gap-3 sm:grid-cols-5">
+            {PRINCIPLES.map(([icon, title, line], index) => (
+              <div key={title} className="gx-card rounded-2xl border bg-white p-4" style={{ borderColor: C.line }}>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-bold" style={{ color: C.faint }}>{index + 1}</span>
+                  <span style={{ color: C.teal }}><Glyph name={icon} /></span>
+                </div>
+                <p className="mt-3 text-[15px] font-bold" style={{ color: C.ink }}>{title}</p>
+                <p className="mt-0.5 text-[12.5px] leading-5" style={{ color: C.muted }}>{line}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {CATEGORIES.map(([name, hint, color]) => (
+              <span key={name} className="inline-flex items-center gap-2 rounded-full border bg-white py-1.5 pl-1.5 pr-4" style={{ borderColor: C.line }}>
+                <span className="rounded-full px-2.5 py-0.5 text-[12px] font-bold" style={{ background: color, color: "#ffffff" }}>{name}</span>
+                <span className="text-[12.5px]" style={{ color: C.muted }}>{hint}</span>
+              </span>
+            ))}
+          </div>
+        </section>
+
+        {/* Under the hood */}
+        <section>
+          <SectionTitle kicker="Under the hood" title="For the curious." line="Collapsed by default -- open what you need." />
+          <div className="space-y-3">
+            <Fold title="Architecture" icon="layers">
+              <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold">
+                {["Browser", "Assistant (Claude)", "One structured command", "Command engine", "Postgres", "Exports"].map((step, index, all) => (
+                  <span key={step} className="flex items-center gap-2">
+                    <span className="rounded-lg px-3 py-1.5" style={{ background: C.canvas, color: C.ink }}>{step}</span>
+                    {index < all.length - 1 ? <span style={{ color: C.faint }}><Glyph name="arrow" size={16} /></span> : null}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-4 text-[13.5px] leading-6" style={{ color: C.body }}>
+                The AI never writes data directly: it returns one structured command, and a deterministic engine applies it. A separate learning database holds learnings, control codes and vendor documentation.
+              </p>
+            </Fold>
+            <Fold title="The 10 standing objectives" icon="shield">
+              <ol className="grid gap-2 sm:grid-cols-2">
+                {OBJECTIVES.map((item, index) => (
+                  <li key={item} className="flex gap-3 text-[13.5px] leading-6" style={{ color: C.body }}>
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold" style={{ background: "#e9f6f8", color: C.teal }}>{index + 1}</span>
+                    {item}
+                  </li>
+                ))}
+              </ol>
+            </Fold>
+            <Fold title="Data model" icon="db">
+              <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                {TABLES.map(([table, purpose]) => (
+                  <div key={table} className="flex gap-3 rounded-lg px-3 py-2" style={{ background: C.canvas }}>
+                    <dt className="shrink-0 font-mono text-[12px] font-semibold" style={{ color: C.ink }}>{table}</dt>
+                    <dd className="text-[12.5px]" style={{ color: C.muted }}>{purpose}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Fold>
           </div>
         </section>
       </div>
 
-      <footer className="border-t border-slate-200 bg-white py-8 text-center text-xs text-slate-400">
-        Control Governor &middot; Developed by Manoj
+      <footer className="border-t py-8 text-center text-[12px]" style={{ borderColor: C.line, color: C.faint, background: "#ffffff" }}>
+        Control Governor · Developed by Manoj
       </footer>
+
+      <style>{`
+        .gx-hero {
+          background:
+            radial-gradient(circle at 80% 10%, rgba(94,234,212,0.18), transparent 40%),
+            radial-gradient(circle at 10% 90%, rgba(37,99,235,0.18), transparent 45%),
+            linear-gradient(135deg, #0b1f33 0%, #0f3d4f 55%, #0f6f7d 100%);
+        }
+        .gx-hero::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background-image: radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1px);
+          background-size: 22px 22px;
+          mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
+        }
+        .gx-dot {
+          width: 7px; height: 7px; border-radius: 9999px; background: #5eead4;
+          box-shadow: 0 0 0 0 rgba(94,234,212,0.7);
+          animation: gx-ping 2s ease-out infinite;
+        }
+        @keyframes gx-ping { 0% { box-shadow: 0 0 0 0 rgba(94,234,212,0.6); } 100% { box-shadow: 0 0 0 10px rgba(94,234,212,0); } }
+        .gx-rise { animation: gx-rise 700ms cubic-bezier(.2,.7,.2,1) both; }
+        .gx-delay-2 { animation-delay: 180ms; }
+        @keyframes gx-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+        .gx-card { transition: transform 180ms ease, box-shadow 180ms ease; }
+        .gx-card:hover { transform: translateY(-3px); box-shadow: 0 14px 34px -18px rgba(15,40,60,0.35); }
+        .gx-step { animation: gx-rise 600ms cubic-bezier(.2,.7,.2,1) both; }
+        @media (min-width: 1024px) {
+          .gx-step:not(:last-child)::after {
+            content: ""; position: absolute; top: 60px; right: -14px; width: 12px; height: 2px;
+            background: linear-gradient(90deg, #0f7d8c, transparent);
+          }
+        }
+        .gx-tile summary::-webkit-details-marker, .gx-fold summary::-webkit-details-marker { display: none; }
+        .gx-tile summary:hover { background: #fafbfc; }
+        .gx-tile[open] .gx-plus { transform: rotate(45deg); }
+        .gx-plus, .gx-chevron { transition: transform 160ms ease; display: inline-block; }
+        .gx-fold[open] .gx-chevron { transform: rotate(180deg); }
+        @media (prefers-reduced-motion: reduce) {
+          .gx-rise, .gx-step, .gx-dot { animation: none; }
+          .gx-card:hover { transform: none; }
+        }
+      `}</style>
     </main>
   );
 }

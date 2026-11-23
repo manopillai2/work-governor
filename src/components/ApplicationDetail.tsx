@@ -15,6 +15,7 @@ import UploadIndicators from "@/components/UploadIndicators";
 import ReadinessView, { ReadinessBar, ReadinessLegend } from "@/components/hub/ReadinessView";
 import DataCollectionPopout from "@/components/hub/DataCollectionPopout";
 import PlatformDocsPanel from "@/components/hub/PlatformDocsPanel";
+import RuleLogicPanel, { ruleSummary } from "@/components/hub/RuleLogicPanel";
 import { readinessCounts, readinessPercent } from "@/services/readiness";
 import { ControlPopout, STATUS_TONE, isTopmostDialog } from "@/components/hub/controlViews";
 import { useHubChat } from "@/components/hub/HubShell";
@@ -190,7 +191,7 @@ export default function ApplicationDetail({
   const withTesting = uploads.filter((u) => u.testing.uploaded).length;
   const requests = accessRequests(controls);
   const openRequests = requests.filter((r) => !r.task.completed);
-  const rulesDefined = controls.filter((c) => c.argosObjective.trim()).length;
+  const rules = ruleSummary(controls);
   const contextFilled = CONTEXT_FIELDS.filter((f) => filled(application[f.key as keyof Application])).length;
   const missingFields = CONTEXT_FIELDS.filter((f) => !filled(application[f.key as keyof Application])).map((f) => f.label);
   const ctxTone = contextStatus === "Complete" ? { fg: T.green, bg: T.greenSoft } : contextStatus === "Partial" ? { fg: T.orange, bg: T.orangeSoft } : { fg: T.red, bg: T.redSoft };
@@ -299,10 +300,10 @@ export default function ApplicationDetail({
 
         <Tile title="Rule logic" subtitle="How each control will be monitored automatically." onOpen={() => setOpenTile("rules")} accent={T.blue}>
           <span className="block text-[12.5px]" style={{ color: T.body }}>
-            <b style={{ color: T.text }}>{rulesDefined}</b> of {controls.length} controls defined
+            <b style={{ color: T.text }}>{rules.built}</b> of {controls.length} built · {rules.approved} approved · {rules.locked} locked
           </span>
           <span className="mt-2 block h-[5px] overflow-hidden rounded-full" style={{ background: T.divider }}>
-            <span className="block h-full rounded-full" style={{ width: `${controls.length ? (rulesDefined / controls.length) * 100 : 0}%`, background: T.blue }} />
+            <span className="block h-full rounded-full" style={{ width: `${controls.length ? (rules.built / controls.length) * 100 : 0}%`, background: T.blue }} />
           </span>
         </Tile>
 
@@ -405,30 +406,7 @@ export default function ApplicationDetail({
 
       {openTile === "access" ? <AccessRequestsPopout controls={controls} onClose={close} /> : null}
 
-      {openTile === "rules" ? (
-        <DetailPopout title="Rule logic" subtitle={`How each control will be monitored · ${rulesDefined} of ${controls.length} defined`} onClose={close}>
-          {controls.length === 0 ? (
-            <p style={{ color: T.faint }}>No controls have been added yet.</p>
-          ) : (
-            <div className="space-y-2.5">
-              {controls.map((c) => (
-                <div key={c.id} className="rounded-lg border p-3" style={{ borderColor: T.border }}>
-                  <div className="flex items-center gap-2">
-                    <CodeTag control={c} />
-                    <span className="min-w-0 flex-1 truncate font-semibold" style={{ color: T.text }}>{c.name}</span>
-                    {c.argosObjective.trim() ? null : <Pill fg={T.muted} bg="#eef1f4">Not defined yet</Pill>}
-                  </div>
-                  {c.argosObjective.trim() ? (
-                    <div className="mt-2">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN}>{c.argosObjective}</ReactMarkdown>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          )}
-        </DetailPopout>
-      ) : null}
+      {openTile === "rules" ? <RuleLogicPanel application={application} onClose={close} /> : null}
 
       {openTile === "evidence" ? (
         <DetailPopout

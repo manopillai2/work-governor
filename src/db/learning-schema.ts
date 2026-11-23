@@ -1,4 +1,5 @@
 import {
+  boolean,
   jsonb,
   pgTable,
   text,
@@ -8,6 +9,9 @@ import {
 export const learnings = pgTable("learnings", {
   id: text("id").primaryKey(),
 
+  // Short plain-English title shown first in the pop-up and the
+  // Learnings page (older rows have none -- the UI falls back).
+  headline: text("headline").notNull().default(""),
   content: text("content").notNull(),
   suggestedTaskText: text("suggested_task_text").notNull(),
   suggestedCategory: text("suggested_category").notNull(),
@@ -15,7 +19,13 @@ export const learnings = pgTable("learnings", {
   framework: text("framework"),
   hosting: text("hosting"),
 
+  // "pending" (waiting for approval) | "accepted" | "rejected"
   status: text("status").notNull().default("pending"),
+
+  // Pop-up housekeeping for pending learnings: hidden until
+  // snoozedUntil, or parked for review on the Learnings page.
+  snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+  reviewInHub: boolean("review_in_hub").notNull().default(false),
 
   sourceApplicationId: text("source_application_id").notNull(),
   sourceControlId: text("source_control_id").notNull(),
@@ -54,6 +64,9 @@ export const clientReferenceLearnings = pgTable(
     title: text("title").notNull(),
 
     status: text("status").notNull().default("pending"),
+
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    reviewInHub: boolean("review_in_hub").notNull().default(false),
 
     sourceApplicationId: text("source_application_id").notNull(),
     sourceControlId: text("source_control_id").notNull(),

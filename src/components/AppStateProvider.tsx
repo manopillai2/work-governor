@@ -19,6 +19,11 @@ import EvidenceUploadModal, {
 } from "@/components/EvidenceUploadModal";
 import { controlUploadState } from "@/services/uploads";
 import EvidenceReuseModal from "@/components/EvidenceReuseModal";
+import {
+  readRuleLogic,
+  withNewVersion,
+  type RuleDraft,
+} from "@/services/ruleLogic";
 import LearningNotifications, {
   type PendingClientReferenceLearning,
   type PendingLearning,
@@ -574,6 +579,47 @@ type AppStateContextValue = {
   messages: ChatMessage[];
   isProcessing: boolean;
   processingSummary: string;
+  // Learning Engine: pending items (pop-up + Learnings page badge) and
+  // the actions both share.
+  pendingLearnings: PendingLearning[];
+  pendingClientReferenceLearnings: PendingClientReferenceLearning[];
+  respondToLearning: (
+    id: string,
+    response: {
+      status: "accepted" | "rejected";
+      framework?: string | null;
+      hosting?: string | null;
+      note?: string;
+    }
+  ) => Promise<void>;
+  respondToClientReferenceLearning: (
+    id: string,
+    status: "accepted" | "rejected"
+  ) => Promise<void>;
+  parkLearning: (
+    kind: LearningKind,
+    id: string,
+    action: { snoozeHours: number } | { reviewInHub: true }
+  ) => Promise<void>;
+  reloadLearnings: () => Promise<void>;
+  // Rule logic (services/ruleLogic.ts): build / ask / change status.
+  // ruleBusy is keyed "<applicationId>:<controlId>".
+  ruleBusy: Record<string, "build" | "chat">;
+  buildRuleLogic: (
+    applicationId: string,
+    controlId: string,
+    trigger?: "auto" | "manual"
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  askRuleLogic: (
+    applicationId: string,
+    controlId: string,
+    message: string
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  setRuleStatus: (
+    applicationId: string,
+    controlId: string,
+    action: RuleAction
+  ) => void;
   // True only while the assistant's reply is being awaited -- the part
   // Stop can cancel (cancelAssistant).
   canCancelAssistant: boolean;
@@ -745,6 +791,51 @@ const AppStateContext =
     null
   );
 
+// Pending learnings (both kinds) for the pop-up and the sidebar badge.
+async function fetchPendingLearnings(): Promise<{
+  learnings?: PendingLearning[];
+  codes?: PendingClientReferenceLearning[];
+}> {
+  const [learningsResponse, codesResponse] =
+    await Promise.all([
+      fetch("/api/learnings/pending").catch(() => null),
+      fetch("/api/learnings/client-context/pending").catch(
+        () => null
+      ),
+    ]);
+
+  const learnings =
+    learningsResponse?.ok
+      ? (await learningsResponse.json()).learnings
+      : undefined;
+  const codes =
+    codesResponse?.ok
+      ? (await codesResponse.json()).learnings
+      : undefined;
+
+  return {
+    learnings: Array.isArray(learnings) ? learnings : undefined,
+    codes: Array.isArray(codes) ? codes : undefined,
+  };
+}
+
+export type LearningKind = "checklist" | "code";
+
+export type RuleAction =
+  | "approve"
+  | "lock"
+  | "develop"
+  | "unlock"
+  | "applyPending"
+  | "dismissPending";
+
+type RuleApiResult = {
+  draft?: RuleDraft;
+  changed?: boolean;
+  reply?: string;
+  error?: string;
+};
+
 export function useAppState(): AppStateContextValue {
   const value = useContext(AppStateContext);
 
@@ -881,75 +972,92 @@ export default function AppStateProvider({
     void preloadPdfFonts();
   }, []);
 
+  async function reloadLearnings() {
+    try {
+      const { learnings, codes } =
+        await fetchPendingLearnings();
+      if (learnings) setPendingLearnings(learnings);
+      if (codes) setPendingClientReferenceLearnings(codes);
+    } catch (error) {
+      console.error("Unable to load pending learnings:", error);
+    }
+  }
+
   useEffect(() => {
-    async function loadPendingLearnings() {
+    let cancelled = false;
+
+    async function load() {
       try {
-        const response = await fetch(
-          "/api/learnings/pending"
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data = await response.json();
-
-        if (Array.isArray(data.learnings)) {
-          setPendingLearnings(data.learnings);
-        }
+        const { learnings, codes } =
+          await fetchPendingLearnings();
+        if (cancelled) return;
+        if (learnings) setPendingLearnings(learnings);
+        if (codes) setPendingClientReferenceLearnings(codes);
       } catch (error) {
-        console.error(
-          "Unable to load pending learnings:",
-          error
-        );
+        console.error("Unable to load pending learnings:", error);
       }
     }
 
-    async function loadPendingClientReferenceLearnings() {
-      try {
-        const response = await fetch(
-          "/api/learnings/client-context/pending"
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data = await response.json();
-
-        if (Array.isArray(data.learnings)) {
-          setPendingClientReferenceLearnings(
-            data.learnings
-          );
-        }
-      } catch (error) {
-        console.error(
-          "Unable to load pending client reference learnings:",
-          error
-        );
-      }
-    }
-
-    loadPendingLearnings();
-    loadPendingClientReferenceLearnings();
-
-    function handleFocus() {
-      loadPendingLearnings();
-      loadPendingClientReferenceLearnings();
-    }
-
-    window.addEventListener(
-      "focus",
-      handleFocus
-    );
+    void load();
+    window.addEventListener("focus", load);
 
     return () => {
-      window.removeEventListener(
-        "focus",
-        handleFocus
-      );
+      cancelled = true;
+      window.removeEventListener("focus", load);
     };
   }, []);
+
+  // Pop-up housekeeping: hide a pending learning for a while, or park
+  // it on the Learnings page. It stays pending (counted, decidable).
+  async function parkLearning(
+    kind: LearningKind,
+    id: string,
+    action: { snoozeHours: number } | { reviewInHub: true }
+  ) {
+    const until =
+      "snoozeHours" in action
+        ? new Date(
+            Date.now() + action.snoozeHours * 3_600_000
+          ).toISOString()
+        : null;
+    const patch = <
+      Item extends {
+        id: string;
+        snoozedUntil?: string | null;
+        reviewInHub?: boolean;
+      },
+    >(
+      item: Item
+    ): Item =>
+      item.id !== id
+        ? item
+        : "snoozeHours" in action
+          ? { ...item, snoozedUntil: until }
+          : { ...item, reviewInHub: true };
+
+    if (kind === "checklist") {
+      setPendingLearnings((current) => current.map(patch));
+    } else {
+      setPendingClientReferenceLearnings((current) =>
+        current.map(patch)
+      );
+    }
+
+    try {
+      await fetch(
+        kind === "checklist"
+          ? `/api/learnings/${id}`
+          : `/api/learnings/client-context/${id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(action),
+        }
+      );
+    } catch (error) {
+      console.error("Unable to update learning:", error);
+    }
+  }
 
   async function handleLearningRespond(
     id: string,
@@ -1749,6 +1857,8 @@ export default function AppStateProvider({
               }
         )
       );
+      // A fresh readiness profile is the best input a rule can get.
+      void autoBuildRules(applicationId, (c) => c.id === controlId);
       return { ok: true };
     } catch (error) {
       return {
@@ -1780,6 +1890,230 @@ export default function AppStateProvider({
             }
       )
     );
+  }
+
+  // ---------- Rule logic ----------
+
+  // Rule builds run after other updates (an upload's notes, a new
+  // readiness profile) have landed, so they read the latest state.
+  const applicationsRef = useRef(applications);
+  useEffect(() => {
+    applicationsRef.current = applications;
+  }, [applications]);
+
+  const [ruleBusy, setRuleBusy] = useState<
+    Record<string, "build" | "chat">
+  >({});
+
+  function setBusy(
+    key: string,
+    value: "build" | "chat" | null
+  ) {
+    setRuleBusy((current) => {
+      const next = { ...current };
+      if (value) next[key] = value;
+      else delete next[key];
+      return next;
+    });
+  }
+
+  async function callRuleApi(
+    applicationId: string,
+    controlId: string,
+    mode: "build" | "chat",
+    message?: string
+  ): Promise<RuleApiResult> {
+    const application = applicationsRef.current.find(
+      (a) => a.id === applicationId
+    );
+    if (!application) return { error: "Application not found." };
+    try {
+      const response = await fetch("/api/rule-logic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ application, controlId, mode, message }),
+      });
+      const data = (await response.json()) as RuleApiResult;
+      if (!response.ok || !data.draft) {
+        return { error: data.error || "Building the rule failed." };
+      }
+      return data;
+    } catch (error) {
+      return {
+        error:
+          error instanceof Error ? error.message : "Building the rule failed.",
+      };
+    }
+  }
+
+  async function buildRuleLogic(
+    applicationId: string,
+    controlId: string,
+    trigger: "auto" | "manual" = "manual"
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const key = `${applicationId}:${controlId}`;
+    const control = applicationsRef.current
+      .find((a) => a.id === applicationId)
+      ?.controls.find((c) => c.id === controlId);
+    if (!control) return { ok: false, error: "Control not found." };
+
+    // A locked rule is never rebuilt; just note that new material exists.
+    if (readRuleLogic(control.ruleLogic)?.status === "locked") {
+      updateControl(applicationId, controlId, (c) => {
+        const state = readRuleLogic(c.ruleLogic);
+        return state ? { ...c, ruleLogic: { ...state, newDataSinceLock: true } } : c;
+      });
+      return { ok: true };
+    }
+
+    setBusy(key, "build");
+    const result = await callRuleApi(applicationId, controlId, "build");
+    setBusy(key, null);
+    if (!result.draft) {
+      return { ok: false, error: result.error || "Building the rule failed." };
+    }
+    const draft = result.draft;
+
+    updateControl(applicationId, controlId, (c) => {
+      const state = readRuleLogic(c.ruleLogic);
+      if (state?.status === "locked") {
+        return { ...c, ruleLogic: { ...state, newDataSinceLock: true } };
+      }
+      if (state?.status === "approved") {
+        // Approved rules are not overwritten: hold the rebuild for review.
+        return result.changed
+          ? { ...c, ruleLogic: { ...state, pendingUpdate: draft } }
+          : c;
+      }
+      if (result.changed || !state) {
+        return {
+          ...c,
+          argosObjective: draft.spec,
+          ruleLogic: withNewVersion(
+            state,
+            c.argosObjective,
+            draft,
+            trigger === "auto" ? "auto" : "user"
+          ),
+        };
+      }
+      return {
+        ...c,
+        ruleLogic: {
+          ...state,
+          readiness: draft.readiness,
+          stillNeeded: draft.stillNeeded,
+        },
+      };
+    });
+    return { ok: true };
+  }
+
+  async function askRuleLogic(
+    applicationId: string,
+    controlId: string,
+    message: string
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const key = `${applicationId}:${controlId}`;
+    setBusy(key, "chat");
+    const result = await callRuleApi(applicationId, controlId, "chat", message);
+    setBusy(key, null);
+    if (!result.draft) {
+      return { ok: false, error: result.error || "The rule assistant failed." };
+    }
+    const draft = result.draft;
+    const at = new Date().toISOString();
+
+    updateControl(applicationId, controlId, (c) => {
+      const state = readRuleLogic(c.ruleLogic);
+      const chat = [
+        ...(state?.chat ?? []),
+        { role: "user" as const, content: message, at },
+        {
+          role: "assistant" as const,
+          content: result.reply || "Done.",
+          at,
+        },
+      ];
+      const editable = !state || state.status === "draft";
+      if (result.changed && editable) {
+        return {
+          ...c,
+          argosObjective: draft.spec,
+          ruleLogic: {
+            ...withNewVersion(state, c.argosObjective, draft, "assistant"),
+            chat,
+          },
+        };
+      }
+      const base = state ?? readRuleLogic({})!;
+      return {
+        ...c,
+        ruleLogic: {
+          ...base,
+          chat,
+          ...(editable
+            ? { readiness: draft.readiness, stillNeeded: draft.stillNeeded }
+            : {}),
+        },
+      };
+    });
+    return { ok: true };
+  }
+
+  function setRuleStatus(
+    applicationId: string,
+    controlId: string,
+    action: RuleAction
+  ) {
+    updateControl(applicationId, controlId, (c) => {
+      const state = readRuleLogic(c.ruleLogic) ?? readRuleLogic({})!;
+      const at = new Date().toISOString();
+      switch (action) {
+        case "approve":
+          return { ...c, ruleLogic: { ...state, status: "approved", updatedAt: at } };
+        case "lock":
+          return {
+            ...c,
+            ruleLogic: { ...state, status: "locked", pendingUpdate: null, newDataSinceLock: false, updatedAt: at },
+          };
+        case "develop":
+        case "unlock":
+          return {
+            ...c,
+            ruleLogic: { ...state, status: "draft", newDataSinceLock: false, updatedAt: at },
+          };
+        case "applyPending":
+          return state.pendingUpdate
+            ? {
+                ...c,
+                argosObjective: state.pendingUpdate.spec,
+                ruleLogic: withNewVersion(state, c.argosObjective, state.pendingUpdate, "auto"),
+              }
+            : c;
+        case "dismissPending":
+          return { ...c, ruleLogic: { ...state, pendingUpdate: null } };
+      }
+    });
+  }
+
+  // After new testing data or a new readiness profile: rebuild each
+  // affected rule (one at a time) once the processing has landed.
+  async function autoBuildRules(
+    applicationId: string,
+    affects: (control: ComplianceControl) => boolean
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const application = applicationsRef.current.find(
+      (a) => a.id === applicationId
+    );
+    for (const control of application?.controls ?? []) {
+      if (!affects(control)) continue;
+      const result = await buildRuleLogic(applicationId, control.id, "auto");
+      if (!result.ok) {
+        console.error(`Rule logic build failed for ${control.name}:`, result.error);
+      }
+    }
   }
 
   function handleEvidenceUploaded(
@@ -1935,7 +2269,27 @@ export default function AppStateProvider({
           )
           .map((document) => document.id),
       }
-    );
+    ).then(() => {
+      const affects = (control: ComplianceControl) =>
+        result.scope === "all" || control.name === result.controlName;
+      if (result.kind === "data") {
+        // Real data is what a rule needs: rebuild the affected rules.
+        void autoBuildRules(result.applicationId, affects);
+      } else {
+        // Evidence alone doesn't rebuild a rule, but a locked rule
+        // should still show that new material arrived.
+        for (const control of applicationsRef.current.find(
+          (a) => a.id === result.applicationId
+        )?.controls ?? []) {
+          if (affects(control) && readRuleLogic(control.ruleLogic)?.status === "locked") {
+            updateControl(result.applicationId, control.id, (c) => {
+              const state = readRuleLogic(c.ruleLogic);
+              return state ? { ...c, ruleLogic: { ...state, newDataSinceLock: true } } : c;
+            });
+          }
+        }
+      }
+    });
   }
 
   async function handleDeleteEvidence(
@@ -2487,6 +2841,10 @@ export default function AppStateProvider({
         );
       }
 
+      // Narrowed in place below (confirmation flags, one-per-type
+      // filtering), so it lives in its own variable.
+      let command: Command = data.command;
+
       // Deterministic, code-detected warnings (evidence archive
       // omissions, truncated history) -- surfaced regardless of what
       // command follows, and regardless of whether the model itself
@@ -2512,7 +2870,7 @@ export default function AppStateProvider({
       if (
         options?.confirmCommand &&
         !READ_ONLY_ACTIONS.has(
-          data.command.action
+          command.action
         )
       ) {
         const summaryBefore =
@@ -2523,7 +2881,7 @@ export default function AppStateProvider({
 
         const decision =
           await options.confirmCommand(
-            data.command
+            command
           );
 
         setProcessingSummary(summaryBefore);
@@ -2544,12 +2902,12 @@ export default function AppStateProvider({
 
       if (
         PRIVILEGED_ACTIONS.has(
-          data.command.action
+          command.action
         )
       ) {
         const requiredPhrase =
           computeRequiredPhrase(
-            data.command
+            command
           );
 
         const confirmed =
@@ -2558,7 +2916,7 @@ export default function AppStateProvider({
               setPendingAdminConfirmation({
                 description:
                   describePrivilegedAction(
-                    data.command!.action
+                    command.action
                   ),
                 requiredPhrase,
                 resolve,
@@ -2583,13 +2941,13 @@ export default function AppStateProvider({
           return;
         }
 
-        data.command = withConfirmed(
-          data.command
+        command = withConfirmed(
+          command
         );
       }
 
       if (
-        data.command.action ===
+        command.action ===
         "CLEAR_CHAT_HISTORY"
       ) {
         setMessages([]);
@@ -2597,7 +2955,7 @@ export default function AppStateProvider({
       }
 
       if (
-        data.command.action ===
+        command.action ===
         "EXPORT_PROGRESS_REPORT"
       ) {
         generateExecutiveProgressPdf(
@@ -2605,7 +2963,7 @@ export default function AppStateProvider({
         );
 
         const exportMessage =
-          data.command.payload.message ||
+          command.payload.message ||
           data.assistantMessage ||
           "The executive progress report was generated and downloaded as a PDF.";
 
@@ -2624,21 +2982,21 @@ export default function AppStateProvider({
       }
 
       if (
-        data.command.action ===
+        command.action ===
         "EXPORT_MEETING_PREP_EMAIL"
       ) {
         const targetApplication =
           findApplication(
             applications,
-            data.command.payload.application
+            command.payload.application
           );
 
         const applicationName =
           targetApplication?.name ||
-          data.command.payload.application;
+          command.payload.application;
 
         const emailPayload =
-          data.command.payload.email;
+          command.payload.email;
 
         // The "Show Questions" buttons ask for the same
         // EXPORT_MEETING_PREP_EMAIL command as "Prep Email" but with
@@ -2687,7 +3045,7 @@ export default function AppStateProvider({
           );
 
         const exportMessage =
-          data.command.payload.message ||
+          command.payload.message ||
           data.assistantMessage ||
           "The meeting-prep email was drafted.";
 
@@ -2713,7 +3071,7 @@ export default function AppStateProvider({
       }
 
       if (
-        data.command.action ===
+        command.action ===
         "BACKUP_APPLICATION_DATA"
       ) {
         const newBackupEntry =
@@ -2753,7 +3111,7 @@ export default function AppStateProvider({
       }
 
       if (
-        data.command.action ===
+        command.action ===
         "LIST_BACKUPS"
       ) {
         setMessages(
@@ -2771,11 +3129,11 @@ export default function AppStateProvider({
       }
 
       if (
-        data.command.action ===
+        command.action ===
         "ROLLBACK_BACKUP"
       ) {
         const targetVersion =
-          data.command.payload.version;
+          command.payload.version;
 
         const targetBackup =
           findBackupByVersion(
@@ -2799,7 +3157,7 @@ export default function AppStateProvider({
         }
 
         if (
-          !data.command.payload.confirmed
+          !command.payload.confirmed
         ) {
           setMessages(
             (currentMessages) => [
@@ -2859,7 +3217,7 @@ export default function AppStateProvider({
       // the chat (so the conversation shows the question) and in a
       // dialog -- before anything is created.
       const typeConflict = findControlTypeConflicts(
-        data.command,
+        command,
         applications
       );
       let conflictNote = "";
@@ -2902,8 +3260,8 @@ export default function AppStateProvider({
         }
 
         if (choice === "onePerType") {
-          data.command = keepOnePerControlType(
-            data.command
+          command = keepOnePerControlType(
+            command
           );
           const skipped = typeConflict.groups.flatMap(
             (g) => g.incoming.slice(1)
@@ -2922,7 +3280,7 @@ export default function AppStateProvider({
       }
 
       const result = executeCommand(
-        data.command,
+        command,
         applications,
         noteSource
       );
@@ -2948,12 +3306,12 @@ export default function AppStateProvider({
       );
 
       void triggerLearningAnalysis(
-        data.command,
+        command,
         result.applications
       );
 
       void checkForStoredEvidence(
-        data.command,
+        command,
         result.applications
       );
     } catch (error) {
@@ -3026,6 +3384,17 @@ export default function AppStateProvider({
     processingSummary,
     canCancelAssistant,
     cancelAssistant,
+    pendingLearnings,
+    pendingClientReferenceLearnings,
+    respondToLearning: handleLearningRespond,
+    respondToClientReferenceLearning:
+      handleClientReferenceLearningRespond,
+    parkLearning,
+    reloadLearnings,
+    ruleBusy,
+    buildRuleLogic,
+    askRuleLogic,
+    setRuleStatus,
     isLoaded,
     loadError,
     retryLoad,
@@ -3074,6 +3443,7 @@ export default function AppStateProvider({
         onRespondClientReference={
           handleClientReferenceLearningRespond
         }
+        onPark={parkLearning}
       />
 
       {pendingControlTypeConflict ? (

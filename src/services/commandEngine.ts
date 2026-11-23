@@ -1,5 +1,9 @@
 import type { ReadinessProfile } from "./readiness";
 import { normalizeClientReferenceContext } from "./clientReference";
+import {
+  ruleAcceptsAutoUpdate,
+  type RuleLogicState,
+} from "@/services/ruleLogic";
 
 export type HomeworkStatus = "Waiting" | "Completed";
 
@@ -145,7 +149,10 @@ export interface ComplianceControl {
   controlRisk: string;
   applicabilityRationale: string;
   evidenceStrategy: string;
+  // The control's rule logic (Argos monitoring rule) as Markdown. Its
+  // lifecycle -- draft / approved / locked, history -- is ruleLogic.
   argosObjective: string;
+  ruleLogic?: RuleLogicState | null;
 
   // The globally recognized standard control name/number (for example
   // an ITGC domain under SOX) that this control's org-local name maps
@@ -1671,6 +1678,18 @@ export function addApplicationNote(
   };
 }
 
+// An approved or locked rule (services/ruleLogic.ts) is only changed
+// from its own Rule logic view, never by a checklist regeneration.
+function keepSettledRule(
+  control: ComplianceControl,
+  proposed: string | undefined
+): string {
+  if (!ruleAcceptsAutoUpdate(control.ruleLogic)) {
+    return control.argosObjective;
+  }
+  return proposed || control.argosObjective;
+}
+
 function getDefaultControlKnowledge(
   controlName: string
 ): Pick<
@@ -2850,9 +2869,11 @@ function executeCommandInner(
                               currentControl.evidenceStrategy,
 
                             argosObjective:
-                              command.payload
-                                .argosObjective ||
-                              currentControl.argosObjective,
+                              keepSettledRule(
+                                currentControl,
+                                command.payload
+                                  .argosObjective
+                              ),
 
                             checklistStatus:
                               "Review Pending",
@@ -3028,7 +3049,10 @@ function executeCommandInner(
                       update.evidenceStrategy,
 
                     argosObjective:
-                      update.argosObjective,
+                      keepSettledRule(
+                        currentControl,
+                        update.argosObjective
+                      ),
 
                     checklistStatus:
                       "Review Pending",

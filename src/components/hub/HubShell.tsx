@@ -217,6 +217,8 @@ export default function HubShell({ title, progress, children }: { title: string;
     handleSend,
     openEvidenceModal,
     applyQuickFilter,
+    pendingLearnings,
+    pendingClientReferenceLearnings,
   } = useAppState();
   const [chatOpen, setChatOpen] = useState(false);
   // null = closed; otherwise the pre-selected application ("" for none).
@@ -242,6 +244,8 @@ export default function HubShell({ title, progress, children }: { title: string;
   }
 
   const controlCount = applications.reduce((n, a) => n + a.controls.length, 0);
+  // Learnings waiting for approval (in the pop-up, snoozed or parked).
+  const waitingLearnings = pendingLearnings.length + pendingClientReferenceLearnings.length || undefined;
 
   // Same drill-down behaviour as the classic Header's tiles; in the
   // New UI the flat control list lives at /controls.
@@ -289,6 +293,7 @@ export default function HubShell({ title, progress, children }: { title: string;
                     <NavItem collapsed={collapsed} href="/" icon={I.grid} label="Dashboard" active={pathname === "/"} />
                     <NavItem collapsed={collapsed} href="/applications" icon={I.apps} label="Applications" active={!!pathname?.startsWith("/applications")} badge={applications.length} />
                     <NavItem collapsed={collapsed} href="/controls" icon={I.list} label="Controls" active={!!pathname?.startsWith("/controls")} badge={controlCount} />
+                    <NavItem collapsed={collapsed} href="/learnings" icon={I.bulb} label="Learnings" active={!!pathname?.startsWith("/learnings")} badge={waitingLearnings} />
                   </>
                 ),
               },

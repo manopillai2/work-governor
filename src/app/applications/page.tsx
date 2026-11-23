@@ -180,7 +180,9 @@ export default function ApplicationsPage() {
                 <p className="text-sm text-slate-400">
                   Loading Control Governor...
                 </p>
-              ) : applications.length === 0 ? (
+              ) : applications.length === 0 && !isHub ? (
+                // Classic only: the New UI grid has its own empty state
+                // with "+ New" / "Start onboarding", so it must still render.
                 <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-8 text-center">
                   <div>
                     <h3 className="font-medium text-slate-200">

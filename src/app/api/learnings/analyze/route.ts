@@ -27,6 +27,7 @@ type AnalysisResult = {
   changeType: "ADDED" | "REMOVED";
   taskText: string;
   shouldCapture: boolean;
+  headline?: string;
   content?: string;
   suggestedTaskText?: string;
   suggestedCategory?: string;
@@ -83,8 +84,12 @@ idiosyncratic details (a person's name, a one-off event, a typo fix).
 Most changes are NOT generalizable. Default to shouldCapture: false unless
 there is a clear, well-reasoned case for reuse.
 
-When shouldCapture is true, also produce:
-- content: one or two plain sentences describing the recommendation in general terms.
+When shouldCapture is true, also produce (people read these in a small pop-up,
+so keep them short and in plain English -- no jargon, no run-on sentences):
+- headline: what to do differently, as a short title of at most 8 words, starting
+  with a verb. Examples: "Check integration accounts in access reviews",
+  "Ask for the termination report, not screenshots".
+- content: ONE short sentence (at most 20 words) saying why it matters.
 - suggestedTaskText: for ADDED changes, the literal checklist item text to add to
   future matching checklists. For REMOVED changes, describe what future checklists
   should reconsider or avoid including by default.
@@ -141,6 +146,7 @@ ${changeLogEntries
                     },
                     taskText: { type: "string" },
                     shouldCapture: { type: "boolean" },
+                    headline: { type: "string" },
                     content: { type: "string" },
                     suggestedTaskText: { type: "string" },
                     suggestedCategory: {
@@ -212,6 +218,7 @@ ${changeLogEntries
 
     const rows = results.map((result) => ({
       id: createLearningId(),
+      headline: (result.headline ?? "").trim(),
       content: result.content ?? "",
       suggestedTaskText: result.suggestedTaskText ?? "",
       suggestedCategory: result.suggestedCategory ?? "Discovery",

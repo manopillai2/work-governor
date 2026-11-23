@@ -112,6 +112,11 @@ export const controls = pgTable("controls", {
   // profile was built.
   readinessStale: boolean("readiness_stale").notNull().default(false),
 
+  // Rule logic lifecycle (services/ruleLogic.ts): draft / approved /
+  // locked, version history and the rule's own assistant conversation.
+  // The rule text itself stays in argos_objective. Null until first built.
+  ruleLogic: jsonb("rule_logic"),
+
   notes: jsonb("notes").$type<Note[]>().notNull().default([]),
   nextTasks: jsonb("next_tasks").$type<ChecklistTask[]>().notNull().default([]),
   checklistChangeLog: jsonb("checklist_change_log")

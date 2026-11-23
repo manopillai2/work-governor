@@ -67,6 +67,12 @@ export default function EvidenceUploadModal({
   const [uploadProgress, setUploadProgress] =
     useState("");
   const [error, setError] = useState("");
+  // Every upload is confirmed first: what kind, which application, and
+  // which control(s) -- "Upload & Apply" shows this, "Yes, upload" sends.
+  const [confirming, setConfirming] = useState(false);
+
+  const kindLabel =
+    kind === "evidence" ? "evidence" : "testing data";
 
   const selectedApplication =
     applications.find(
@@ -99,6 +105,11 @@ export default function EvidenceUploadModal({
       return;
     }
 
+    setError("");
+    setConfirming(true);
+  }
+
+  async function upload() {
     setIsUploading(true);
     setError("");
 
@@ -176,6 +187,7 @@ export default function EvidenceUploadModal({
 
       onClose();
     } catch (err) {
+      setConfirming(false);
       setError(
         err instanceof Error
           ? err.message
@@ -190,7 +202,9 @@ export default function EvidenceUploadModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
+      onClick={() => {
+        if (!isUploading) onClose();
+      }}
     >
       <div
         role="dialog"
@@ -221,6 +235,67 @@ export default function EvidenceUploadModal({
           you can ask questions about it later.
         </p>
 
+        {confirming ? (
+          <div className="mt-4 space-y-3">
+            <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 p-3 text-sm leading-6 text-slate-200">
+              <p className="font-semibold text-white">
+                You&apos;re adding{" "}
+                {files.length === 1
+                  ? `1 ${kindLabel} file`
+                  : `${files.length} ${kindLabel} files`}{" "}
+                to:
+              </p>
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+                <dt className="text-slate-400">Application</dt>
+                <dd className="font-medium text-white">
+                  {selectedApplication?.name || applicationId}
+                </dd>
+                <dt className="text-slate-400">
+                  {scope === "all" ? "Controls" : "Control"}
+                </dt>
+                <dd className="font-medium text-white">
+                  {scope === "all"
+                    ? `All controls (${selectedApplication?.controls.length ?? 0})`
+                    : controlName}
+                </dd>
+              </dl>
+              <ul className="mt-2 space-y-0.5 text-[12.5px] text-slate-300">
+                {files.map((file, index) => (
+                  <li key={`${file.name}-${index}`} className="truncate">
+                    • {file.name}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 font-medium text-white">Proceed?</p>
+            </div>
+
+            {uploadProgress ? (
+              <p className="text-xs text-slate-400">
+                {uploadProgress}
+              </p>
+            ) : null}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                disabled={isUploading}
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                No, go back
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => void upload()}
+                disabled={isUploading}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {isUploading ? "Uploading…" : "Yes, upload"}
+              </button>
+            </div>
+          </div>
+        ) : (
         <form
           onSubmit={handleSubmit}
           className="mt-4 space-y-3"
@@ -396,6 +471,7 @@ export default function EvidenceUploadModal({
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

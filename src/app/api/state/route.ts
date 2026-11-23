@@ -4,6 +4,7 @@ import { db } from "@/db/client";
 import { applications, chatMessages, controls } from "@/db/schema";
 import type { ChatMessage } from "@/components/ChatPanel";
 import { readStoredReadiness } from "@/services/readiness";
+import { readRuleLogic } from "@/services/ruleLogic";
 import type {
   Application,
   ComplianceControl,
@@ -50,6 +51,7 @@ export async function GET() {
       evidenceDataGapAnalysisStale: row.evidenceDataGapAnalysisStale,
       readinessProfile: readStoredReadiness(row.readinessProfile),
       readinessStale: row.readinessStale,
+      ruleLogic: readRuleLogic(row.ruleLogic),
       notes: row.notes,
       nextTasks: row.nextTasks,
       checklistChangeLog: row.checklistChangeLog,
@@ -156,6 +158,7 @@ export async function PUT(request: Request) {
               control.evidenceDataGapAnalysisStale,
             readinessProfile: control.readinessProfile ?? null,
             readinessStale: control.readinessStale === true,
+            ruleLogic: control.ruleLogic ?? null,
             notes: control.notes,
             nextTasks: control.nextTasks,
             checklistChangeLog: control.checklistChangeLog,

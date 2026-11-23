@@ -5,7 +5,9 @@ import { learningDb } from "@/db/learning-client";
 import { clientReferenceLearnings } from "@/db/learning-schema";
 
 type RespondBody = {
-  status: "accepted" | "rejected";
+  status?: "accepted" | "rejected" | "pending";
+  snoozeHours?: number;
+  reviewInHub?: boolean;
 };
 
 export async function PATCH(
@@ -15,9 +17,39 @@ export async function PATCH(
   const { id } = await params;
   const body = (await request.json()) as RespondBody;
 
-  if (body.status !== "accepted" && body.status !== "rejected") {
+  const snoozeHours = Number(body.snoozeHours);
+  const isSnooze = Number.isFinite(snoozeHours) && snoozeHours > 0;
+
+  // Pop-up housekeeping only (snooze / park on the Learnings page).
+  if (body.status === undefined) {
+    if (!isSnooze && body.reviewInHub === undefined) {
+      return NextResponse.json(
+        { error: "Send a status, snoozeHours or reviewInHub." },
+        { status: 400 }
+      );
+    }
+
+    const [parked] = await learningDb
+      .update(clientReferenceLearnings)
+      .set({
+        ...(isSnooze
+          ? { snoozedUntil: new Date(Date.now() + snoozeHours * 3_600_000) }
+          : {}),
+        ...(body.reviewInHub !== undefined
+          ? { reviewInHub: body.reviewInHub }
+          : {}),
+      })
+      .where(eq(clientReferenceLearnings.id, id))
+      .returning();
+
+    return parked
+      ? NextResponse.json({ learning: parked })
+      : NextResponse.json({ error: "Learning not found." }, { status: 404 });
+  }
+
+  if (!["accepted", "rejected", "pending"].includes(body.status)) {
     return NextResponse.json(
-      { error: "status must be 'accepted' or 'rejected'." },
+      { error: "status must be 'accepted', 'rejected' or 'pending'." },
       { status: 400 }
     );
   }
@@ -33,7 +65,9 @@ export async function PATCH(
     .update(clientReferenceLearnings)
     .set({
       status: body.status,
-      respondedAt: new Date(),
+      respondedAt: body.status === "pending" ? null : new Date(),
+      snoozedUntil: null,
+      reviewInHub: body.status === "pending",
     })
     .where(eq(clientReferenceLearnings.id, id))
     .returning();

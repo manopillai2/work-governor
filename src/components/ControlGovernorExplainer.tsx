@@ -9,6 +9,7 @@ type StageId =
   | "evidence"
   | "adaptive"
   | "learning"
+  | "rule"
   | "argos";
 
 type Stage = {
@@ -26,7 +27,7 @@ const STAGES: Stage[] = [
     short: "Understand",
     title: "Understand the application",
     subtitle:
-      "Purpose, business process, owners, hosting, identities, integrations, and financial relevance.",
+      "Paste whatever you have into onboarding -- the assistant checks it and asks questions, nothing is saved until you confirm. Known vendor products add facts from their official documentation.",
   },
   {
     id: "control",
@@ -42,7 +43,7 @@ const STAGES: Stage[] = [
     short: "Build",
     title: "Generate a context-aware checklist",
     subtitle:
-      "Control intent + application context + accepted learnings become concrete research and evidence tasks.",
+      "Control intent + application context + official vendor documentation + accepted learnings become concrete research and evidence tasks.",
   },
   {
     id: "evidence",
@@ -50,7 +51,7 @@ const STAGES: Stage[] = [
     short: "Validate",
     title: "Compare evidence with testing data",
     subtitle:
-      "Evidence and testing data remain separate, attributable, and testable against each other -- every gap found becomes a concrete access or evidence-collection ask, not just an observation.",
+      "Every upload is confirmed first. Evidence and testing data -- uploaded, or pulled by an approved collector -- stay separate and are checked against each other in a readiness profile: what is verified, what conflicts, what to ask for next.",
   },
   {
     id: "adaptive",
@@ -66,11 +67,19 @@ const STAGES: Stage[] = [
     short: "Learn",
     title: "Reuse validated knowledge",
     subtitle:
-      "Candidate learnings require human approval before they can influence future checklist generation.",
+      "Each candidate learning arrives as a short card to approve, deny, snooze, or move to the Learning hub -- nothing influences future checklists without human approval.",
+  },
+  {
+    id: "rule",
+    number: "07",
+    short: "Rule",
+    title: "Build the rule from real data",
+    subtitle:
+      "As testing data arrives, the monitoring rule builds itself from what the data proves -- with what is still needed listed, never invented. Develop it with its assistant, then approve and lock it.",
   },
   {
     id: "argos",
-    number: "07",
+    number: "08",
     short: "Monitor",
     title: "Turn research into Argos monitoring",
     subtitle:
@@ -247,6 +256,7 @@ function UnderstandStage() {
     "Owners",
     "Identities",
     "Integrations",
+    "Vendor Docs",
   ];
 
   return (
@@ -341,6 +351,8 @@ function ChecklistStage() {
         <span>+</span>
         <Pill>Application Context</Pill>
         <span>+</span>
+        <Pill>Vendor Docs</Pill>
+        <span>+</span>
         <Pill>Accepted Learnings</Pill>
       </div>
 
@@ -394,8 +406,8 @@ function EvidenceStage() {
         <div className="cg-analysis-ring">
           <Icon name="spark" size={24} />
         </div>
-        <strong>Gap Analysis</strong>
-        <span>Compare claims with authoritative data</span>
+        <strong>Readiness Profile</strong>
+        <span>Claims checked against the real data</span>
 
         <div className="cg-outcomes">
           <Pill tone="good">✓ Match</Pill>
@@ -404,7 +416,7 @@ function EvidenceStage() {
         </div>
 
         <p className="cg-gap-note">
-          Every gap → an Access ask, added automatically
+          % verified · conflicts · what to request next
         </p>
       </div>
 
@@ -415,7 +427,7 @@ function EvidenceStage() {
         </div>
         <MiniCard title="API">Users · roles · permissions</MiniCard>
         <MiniCard title="Identity Source">Entra ID / SSO</MiniCard>
-        <MiniCard title="Logs / Config">Sign-ins · settings · history</MiniCard>
+        <MiniCard title="Connector">Approved collector pulls it directly</MiniCard>
       </div>
 
       <div className="cg-data-path cg-data-path--left" aria-hidden="true">
@@ -499,13 +511,17 @@ function LearningStage() {
         <div className="cg-eyebrow">Human review required</div>
         <div className="cg-review-actions">
           <button type="button" tabIndex={-1}>
-            Reject
+            Snooze
+          </button>
+          <button type="button" tabIndex={-1}>
+            Deny
           </button>
           <button type="button" className="cg-review-accept" tabIndex={-1}>
             <Icon name="check" size={14} />
-            Accept
+            Approve
           </button>
         </div>
+        <p className="cg-gap-note">or review it later in the Learning hub</p>
       </div>
 
       <div className="cg-learning-engine">
@@ -532,6 +548,75 @@ function LearningStage() {
   );
 }
 
+function RuleStage() {
+  const findings = [
+    ["Finding 1 · CRITICAL", "Live password policy weaker than the standard", "Would flag today: min_length 8"],
+    ["Finding 2 · HIGH", "Human account set to never expire", "Would flag today: 1 account"],
+    ["Still needed", "Vault rotation export for service accounts", ""],
+  ];
+
+  return (
+    <div className="cg-scene cg-scene--checklist">
+      <div className="cg-input-row">
+        <Pill tone="accent">Readiness Profile</Pill>
+        <span>+</span>
+        <Pill>Testing Data</Pill>
+        <span>+</span>
+        <Pill>Notes &amp; Evidence</Pill>
+      </div>
+
+      <FlowArrow label="build" />
+
+      <div className="cg-checklist-card">
+        <div className="cg-checklist-card__header">
+          <div>
+            <div className="cg-eyebrow">Rule logic · v3</div>
+            <h3>Password Application</h3>
+          </div>
+          <Pill tone="warn">Partly built</Pill>
+        </div>
+
+        <div className="cg-task-list">
+          {findings.map(([label, text, flag], index) => (
+            <div
+              className="cg-task-row"
+              key={text}
+              style={{ "--i": index } as React.CSSProperties}
+            >
+              <span className="cg-task-check">
+                <Icon name={flag ? "check" : "spark"} size={15} />
+              </span>
+              <div>
+                <span className="cg-task-category">{label}</span>
+                <strong>{text}</strong>
+                {flag ? <span className="cg-task-category">{flag}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="cg-remediation-flow">
+        <span>Developing</span>
+        <Icon name="arrow" size={14} />
+        <span>Approved</span>
+        <Icon name="arrow" size={14} />
+        <span>Locked</span>
+      </div>
+
+      <div className="cg-chat-bubble">
+        <div className="cg-chat-avatar">
+          <Icon name="user" size={16} />
+        </div>
+        <div>
+          <span>Rule assistant</span>
+          <strong>“Add a finding for accounts disabled more than 1 day late.”</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ArgosStage() {
   const records = [
     "Users",
@@ -544,8 +629,8 @@ function ArgosStage() {
   return (
     <div className="cg-scene cg-scene--argos">
       <div className="cg-argos-gate">
-        <Pill tone="good">✓ Ready for Argos</Pill>
-        <span>Testing data closes every gap -- not just evidence, not just a plan</span>
+        <Pill tone="good">✓ Rule locked</Pill>
+        <span>Built from real testing data, reviewed and locked -- ready to run in Argos</span>
       </div>
 
       <div className="cg-argos-pipeline">
@@ -621,6 +706,8 @@ function StageScene({ stage }: { stage: StageId }) {
       return <AdaptiveStage />;
     case "learning":
       return <LearningStage />;
+    case "rule":
+      return <RuleStage />;
     case "argos":
       return <ArgosStage />;
   }
@@ -681,14 +768,15 @@ export default function ControlGovernorExplainer({
             <h2>Follow a control from discovery to continuous monitoring.</h2>
             <p>
               Control Governor turns application context, control intent, evidence,
-              testing data, and validated learnings into repeatable Argos monitoring.
+              testing data, and validated learnings into rule logic you approve and
+              lock -- and then into repeatable Argos monitoring.
             </p>
           </div>
 
           <div className="cg-stage-counter" aria-label="Current stage">
             <span>{activeStage.number}</span>
             <span>/</span>
-            <span>07</span>
+            <span>{String(STAGES.length).padStart(2, "0")}</span>
           </div>
         </div>
 
@@ -742,7 +830,7 @@ export default function ControlGovernorExplainer({
           <span className="cg-footer-note__line" />
           <span>
             Application context → Control intent → Checklist → Evidence & data →
-            Validated learning → Argos
+            Validated learning → Rule logic → Argos
           </span>
           <span className="cg-footer-note__line" />
         </div>
@@ -1887,7 +1975,7 @@ export default function ControlGovernorExplainer({
 
         .cg-stage-nav {
           display: grid;
-          grid-template-columns: repeat(7, minmax(0, 1fr));
+          grid-template-columns: repeat(8, minmax(0, 1fr));
           gap: 7px;
           margin-top: 18px;
         }
